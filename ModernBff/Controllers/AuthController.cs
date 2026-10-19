@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
+using ModernBff.Data;
 using ModernBff.Models;
 using ModernBff.Services;
 
@@ -10,27 +12,30 @@ namespace ModernBff.Controllers;
 [Route("api/bff/auth")]
 public class AuthController : ControllerBase
 {
+    private readonly IServiceProvider _serviceProvider;
+    private readonly IConfiguration _configuration;
     private readonly SharedLoginUserStore _loginUserStore;
     private readonly IDistributedCache _distributedCache;
+    private readonly ILogger<AuthController> _logger;
 
-    // 検証用プリセットユーザ定義（ユーザ・組織・権限）
-    private static readonly Dictionary<string, (string Password, string UserName, string OrgCode, string OrgName, List<string> Roles)> PresetUsers = new(StringComparer.OrdinalIgnoreCase)
+    public AuthController(
+        IServiceProvider serviceProvider,
+        IConfiguration configuration,
+        SharedLoginUserStore loginUserStore,
+        IDistributedCache distributedCache,
+        ILogger<AuthController> logger)
     {
-        ["yamada"] = ("pass123", "山田 太郎", "ORG-SALES-01", "第一営業本部 エンタープライズ営業部", new List<string> { "Admin", "SalesManager", "CustomerRead", "CustomerWrite", "LegacyAccess" }),
-        ["suzuki"] = ("pass123", "鈴木 花子", "ORG-CS-02", "カスタマーサクセス推進室", new List<string> { "Operator", "CustomerRead" }),
-        ["sato"]   = ("pass123", "佐藤 健一", "ORG-AUDIT-99", "内部監査室", new List<string> { "Auditor", "CustomerRead", "LegacyAccess" })
-    };
-
-    public AuthController(SharedLoginUserStore loginUserStore, IDistributedCache distributedCache)
-    {
+        _serviceProvider = serviceProvider;
+        _configuration = configuration;
         _loginUserStore = loginUserStore;
         _distributedCache = distributedCache;
+        _logger = logger;
     }
 
     /// <summary>
     /// POST /api/bff/auth/login
-    /// Webログイン画面（ブラウザ または WinForms WebView2）から呼び出され、
-    /// loginuser（ユーザ・組織・権限）を Redis に保存し、Cookie と JSON でセッショントークンを返します。
+    /// EF Core を用いてデータベース (Oracle / Postgres / SqlServer 設定切替対応) の
+    /// USR_TBL テーブルを検索し、ログイン可否チェックと loginuser（ユーザ・組織・権限）の生成・Redis共有を行います。
     /// </summary>
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
@@ -41,47 +46,70 @@ public class AuthController : ControllerBase
         }
 
         string userId = request.UserId.Trim();
-        LoginUser loginUser;
 
-        if (PresetUsers.TryGetValue(userId, out var preset))
-        {
-            if (!string.IsNullOrEmpty(request.Password) && request.Password != preset.Password)
-            {
-                return Unauthorized(new { message = "パスワードが正しくありません。（検証用パスワード: pass123）" });
-            }
+        // 1. EF Core DbContext を取得し、USR_TBL でログイン可能か検証
+        using var db = DatabaseConfigurationExtensions.CreateWorkingContextWithFallback(
+            _serviceProvider,
+            _configuration,
+            _logger,
+            out string dbProviderStatus);
 
-            loginUser = new LoginUser
-            {
-                SessionToken = Guid.NewGuid().ToString("N"),
-                UserId = userId,
-                UserName = preset.UserName,
-                OrganizationCode = preset.OrgCode,
-                OrganizationName = preset.OrgName,
-                Roles = preset.Roles,
-                AuthenticatedAtUtc = DateTime.UtcNow
-            };
-        }
-        else
+        var usrRecord = await db.UsrTbl
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.UsrId.ToLower() == userId.ToLower());
+
+        if (usrRecord == null)
         {
-            // 任意のIDでも検証しやすいようゲスト組織・権限でログイン可能にする
-            loginUser = new LoginUser
+            return Unauthorized(new
             {
-                SessionToken = Guid.NewGuid().ToString("N"),
-                UserId = userId,
-                UserName = $"検証ユーザ ({userId})",
-                OrganizationCode = "ORG-GEN-00",
-                OrganizationName = "総合企画部",
-                Roles = new List<string> { "StandardUser", "CustomerRead" },
-                AuthenticatedAtUtc = DateTime.UtcNow
-            };
+                message = $"USR_TBL にユーザID '{userId}' が存在しません。（登録済: yamada, suzuki, sato, disabled_user）",
+                checkedTable = "USR_TBL",
+                databaseProvider = dbProviderStatus
+            });
         }
+
+        if (!usrRecord.IsActive)
+        {
+            return Unauthorized(new
+            {
+                message = $"ユーザ '{usrRecord.UsrNm} ({usrRecord.UsrId})' は USR_TBL.IS_ACTIVE = false のためログイン不可です。",
+                checkedTable = "USR_TBL",
+                databaseProvider = dbProviderStatus
+            });
+        }
+
+        if (usrRecord.Password != request.Password)
+        {
+            return Unauthorized(new
+            {
+                message = "USR_TBL のパスワードと一致しません。（検証用パスワード: pass123）",
+                checkedTable = "USR_TBL",
+                databaseProvider = dbProviderStatus
+            });
+        }
+
+        // 2. USR_TBL のレコードから共有 loginuser（ユーザ・組織・権限）を生成
+        var roles = usrRecord.RolesCsv
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+        var loginUser = new LoginUser
+        {
+            SessionToken = Guid.NewGuid().ToString("N"),
+            UserId = usrRecord.UsrId,
+            UserName = usrRecord.UsrNm,
+            OrganizationCode = usrRecord.OrgCd,
+            OrganizationName = usrRecord.OrgNm,
+            Roles = roles,
+            AuthenticatedAtUtc = DateTime.UtcNow
+        };
 
         var ttl = TimeSpan.FromMinutes(60);
 
-        // 1. LegacyMvc と直接共有する Redis キー ("StranglerSession:LoginUser:{token}") に保存
+        // 3. LegacyMvc と直接共有する Redis キー ("StranglerSession:LoginUser:{token}") に保存
         var (storedInRedis, redisKey) = await _loginUserStore.SaveLoginUserAsync(loginUser, ttl);
 
-        // 2. ASP.NET Core の IDistributedCache にも保存
+        // 4. ASP.NET Core の IDistributedCache にも保存
         try
         {
             await _distributedCache.SetStringAsync(
@@ -95,7 +123,7 @@ public class AuthController : ControllerBase
             // Redis 未起動時は SharedLoginUserStore のインメモリフォールバックで継続
         }
 
-        // 3. ブラウザ / WebView2 / HttpClient 共通で利用できる Cookie をセット
+        // 5. ブラウザ / WebView2 / HttpClient 共通で利用できる Cookie をセット
         Response.Cookies.Append(SharedLoginUserStore.CookieName, loginUser.SessionToken, new CookieOptions
         {
             HttpOnly = false,
@@ -108,10 +136,34 @@ public class AuthController : ControllerBase
 
         return Ok(new
         {
-            Message = "ログインに成功しました。loginuser を共有セッション (Redis) に登録しました。",
+            Message = "USR_TBL での認証に成功しました。loginuser を共有セッション (Redis) に登録しました。",
+            AuthenticatedFromTable = "USR_TBL (EF Core)",
+            DatabaseProvider = dbProviderStatus,
             StoredInRedis = storedInRedis,
             RedisKey = redisKey,
             LoginUser = loginUser
+        });
+    }
+
+    /// <summary>
+    /// GET /api/bff/auth/users
+    /// USR_TBL に登録されているユーザ一覧を確認する検証用エンドポイント
+    /// </summary>
+    [HttpGet("users")]
+    public async Task<IActionResult> GetUsrTblList()
+    {
+        using var db = DatabaseConfigurationExtensions.CreateWorkingContextWithFallback(
+            _serviceProvider,
+            _configuration,
+            _logger,
+            out string dbProviderStatus);
+
+        var users = await db.UsrTbl.AsNoTracking().ToListAsync();
+        return Ok(new
+        {
+            Table = "USR_TBL",
+            DatabaseProvider = dbProviderStatus,
+            Users = users
         });
     }
 

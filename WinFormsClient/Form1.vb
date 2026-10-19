@@ -116,6 +116,9 @@ Public Class Form1
             .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         }
         cmbRoute.Items.AddRange(New Object() {
+            "/api/bff/items",
+            "/legacy-api/LegacyData/GetItems",
+            "/api/bff/auth/users",
             "/api/bff/customer/1",
             "/api/bff/customer/1?useLegacyFallback=true",
             "/api/bff/auth/me",

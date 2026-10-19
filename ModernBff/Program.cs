@@ -1,3 +1,4 @@
+using ModernBff.Data;
 using ModernBff.Services;
 using StackExchange.Redis;
 
@@ -7,6 +8,16 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService();
 
 builder.Services.AddControllers();
+
+// 0. EF Core DbContext の登録 (appsettings.json の Database:Provider で Oracle / Postgres / SqlServer / InMemory を切り替え)
+builder.Services.AddDbContext<StranglerDbContext>(options =>
+{
+    DatabaseConfigurationExtensions.ConfigureStranglerDatabase(
+        options,
+        builder.Configuration,
+        out _,
+        out _);
+});
 
 // 1. AddStackExchangeRedisCache による分散キャッシュ・分散セッションのセットアップ
 var redisConnectionString = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379,abortConnect=false";

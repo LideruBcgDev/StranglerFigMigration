@@ -1,6 +1,10 @@
 using System;
+using System.Configuration;
+using System.Linq;
 using System.Web.Mvc;
+using LegacyMvc.Data;
 using LegacyMvc.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace LegacyMvc.Controllers
 {
@@ -13,12 +17,11 @@ namespace LegacyMvc.Controllers
         {
             string sessionValue = "RedisOffline";
 
-            // ModernBff の Web ログイン画面で確立された共有 loginuser（ユーザ・組織・権限）を Redis から取得
+            // ModernBff の Web ログイン画面 (USR_TBL 認証) で確立された共有 loginuser（ユーザ・組織・権限）を Redis から取得
             SharedLoginUser loginUser = SharedLoginUser.ResolveFromRedis(Request, out string loginUserLookupStatus);
 
             try
             {
-                // ASP.NET SessionState の更新および loginuser の格納
                 Session["LastAccessedCustomerId"] = id;
                 Session["LastAccessedAt"] = DateTime.UtcNow.ToString("O");
                 if (loginUser != null)
@@ -26,7 +29,6 @@ namespace LegacyMvc.Controllers
                     Session["loginuser"] = loginUser;
                 }
 
-                // StackExchange.Redis 経由で ModernBff と共有可能なキーにも保存
                 if (MvcApplication.RedisConnection.IsConnected)
                 {
                     var db = MvcApplication.GetRedisDatabase();
@@ -57,6 +59,41 @@ namespace LegacyMvc.Controllers
             };
 
             return Json(customerData, JsonRequestBehavior.AllowGet);
+        }
+
+        // GET: /LegacyData/GetItems?itmCd=ITM-001
+        // YARP 経由: /legacy-api/LegacyData/GetItems?itmCd=ITM-001
+        [HttpGet]
+        public ActionResult GetItems(string itmCd = null)
+        {
+            SharedLoginUser loginUser = SharedLoginUser.ResolveFromRedis(Request, out string loginUserLookupStatus);
+
+            using (var db = LegacyStranglerDbContext.CreateFromWebConfig(out string dbProviderStatus))
+            {
+                var query = db.ItmTbl.AsNoTracking().AsQueryable();
+                if (!string.IsNullOrWhiteSpace(itmCd))
+                {
+                    string code = itmCd.Trim();
+                    query = query.Where(i => i.ItmCd.ToLower() == code.ToLower());
+                }
+
+                var items = query.OrderBy(i => i.ItmCd).ToList();
+
+                var responseData = new
+                {
+                    Source = "LegacyMvc (.NET Framework 4.8.1 ASP.NET MVC + EF Core)",
+                    Table = "ITM_TBL (品目マスタ)",
+                    ConfiguredProvider = ConfigurationManager.AppSettings["DatabaseProvider"] ?? "SqlServer",
+                    DatabaseProviderStatus = dbProviderStatus,
+                    SharedLoginUser = loginUser,
+                    LoginUserLookupStatus = loginUserLookupStatus,
+                    ItemCount = items.Count,
+                    Items = items,
+                    TimestampUtc = DateTime.UtcNow.ToString("O")
+                };
+
+                return Json(responseData, JsonRequestBehavior.AllowGet);
+            }
         }
     }
 }

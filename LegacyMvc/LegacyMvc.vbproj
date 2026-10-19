@@ -15,6 +15,22 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Data\**" />
+    <Compile Remove="Properties\**" />
+    <EmbeddedResource Remove="Data\**" />
+    <EmbeddedResource Remove="Properties\**" />
+    <None Remove="Data\**" />
+    <None Remove="Properties\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="App_Start\RouteConfig.cs" />
+    <None Remove="Controllers\LegacyDataController.cs" />
+    <None Remove="Global.asax.cs" />
+    <None Remove="Models\SharedLoginUser.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="System.Configuration" />
     <Reference Include="System.Web" />
     <Reference Include="System.Web.Abstractions" />

@@ -102,7 +102,7 @@
     <script>
         async function loadDrawings() {
             const kw = document.getElementById('searchKeyword').value;
-            const res = await fetch('/api/bff/items/drawings?keyword=' + encodeURIComponent(kw));
+            const res = await fetch('/View/drawings?keyword=' + encodeURIComponent(kw));
             const data = await res.json();
             const tbody = document.getElementById('drawingTableBody');
             tbody.innerHTML = '';
@@ -137,7 +137,7 @@
                 revision: document.getElementById('revision').value
             };
 
-            const res = await fetch('/api/bff/items/drawings', {
+            const res = await fetch('/View/drawings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -148,13 +148,13 @@
         }
 
         async function applyDrawingWorkflow(drawingNo, title) {
-            const res = await fetch('/api/bff/workflow/apply', {
+            const res = await fetch('/View/workflow/apply', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     targetType: 'DRAWING',
                     targetId: drawingNo,
-                    wfTitle: `[図面単体申請] ${drawingNo}: ${title}`
+                    wfTitle: `[図面単体申請 (ViewController)] ${drawingNo}: ${title}`
                 })
             });
             const data = await res.json();

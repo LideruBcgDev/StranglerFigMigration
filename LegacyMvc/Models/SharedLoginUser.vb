@@ -33,6 +33,12 @@ Namespace Models
         <JsonProperty("roles")>
         Public Property Roles As New List(Of String)()
 
+        <JsonProperty("authenticationMethod")>
+        Public Property AuthenticationMethod As String
+
+        <JsonProperty("identityProvider")>
+        Public Property IdentityProvider As String
+
         <JsonProperty("authenticatedAtUtc")>
         Public Property AuthenticatedAtUtc As DateTime
 

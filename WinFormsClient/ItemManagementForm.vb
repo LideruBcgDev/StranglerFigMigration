@@ -125,8 +125,8 @@ Public Class ItemManagementForm
 
     Private Async Function LoadItemsAsync(keyword As String) As Task
         Try
-            lblStatus.Text = "ITM_TBL を検索中..."
-            Dim url As String = "api/bff/items"
+            lblStatus.Text = "ClientController (Client/items) 経由で ITM_TBL を検索中..."
+            Dim url As String = "Client/items"
             If Not String.IsNullOrWhiteSpace(keyword) Then
                 url &= "?itmCd=" & Uri.EscapeDataString(keyword)
             End If
@@ -161,7 +161,7 @@ Public Class ItemManagementForm
             End Using
 
             dgvItems.DataSource = dt
-            lblStatus.Text = $"検索完了: {dt.Rows.Count} 件の品目 (ITM_TBL) を取得しました。"
+            lblStatus.Text = $"検索完了: {dt.Rows.Count} 件の品目 (ITM_TBL) を取得しました [RoutePrefix: Client]。"
         Catch ex As Exception
             lblStatus.Text = "検索エラー: " & ex.Message
         End Try
@@ -195,11 +195,11 @@ Public Class ItemManagementForm
             Dim jsonBody As String = JsonSerializer.Serialize(payloadObj)
             Dim content As New StringContent(jsonBody, Encoding.UTF8, "application/json")
 
-            Dim resp As HttpResponseMessage = Await _httpClient.PostAsync("api/bff/items", content)
+            Dim resp As HttpResponseMessage = Await _httpClient.PostAsync("Client/items", content)
             Dim respText As String = Await resp.Content.ReadAsStringAsync()
 
             Await LoadItemsAsync(String.Empty)
-            lblStatus.Text = $"✓ 品目 '{txtItmCd.Text}' を ITM_TBL に登録・更新しました (LegacyMvc.MDL 同期完了)。"
+            lblStatus.Text = $"✓ ClientController (Client/items) 経由で品目 '{txtItmCd.Text}' を登録・更新しました。"
         Catch ex As Exception
             MessageBox.Show("品目登録エラー: " & ex.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
@@ -214,15 +214,15 @@ Public Class ItemManagementForm
             Dim payloadObj = New With {
                 .targetType = "ITEM",
                 .targetId = code,
-                .wfTitle = $"[品目単体申請 (WinForms)] {code}: {name}"
+                .wfTitle = $"[品目単体申請 (WinForms -> Client)] {code}: {name}"
             }
             Dim content As New StringContent(JsonSerializer.Serialize(payloadObj), Encoding.UTF8, "application/json")
-            Dim resp As HttpResponseMessage = Await _httpClient.PostAsync("api/bff/workflow/apply", content)
+            Dim resp As HttpResponseMessage = Await _httpClient.PostAsync("Client/workflow/apply", content)
             Dim respJson As String = Await resp.Content.ReadAsStringAsync()
 
             Await LoadItemsAsync(String.Empty)
             MessageBox.Show(
-                $"品目 '{code} ({name})' のワークフロー申請 (Step1: 申請) を完了しました。" & Environment.NewLine &
+                $"ClientController (Client/workflow/apply) 経由で品目 '{code} ({name})' のワークフロー申請を完了しました。" & Environment.NewLine &
                 "モダン側のワークフロー管理画面 (/workflows) で照査・承認を行えます。",
                 "ワークフロー申請完了",
                 MessageBoxButtons.OK,

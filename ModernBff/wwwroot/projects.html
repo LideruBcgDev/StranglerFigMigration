@@ -92,7 +92,7 @@
     <script>
         async function loadProjects() {
             const kw = document.getElementById('keyword').value;
-            const res = await fetch('/api/bff/workflow/projects?keyword=' + encodeURIComponent(kw));
+            const res = await fetch('/View/projects?keyword=' + encodeURIComponent(kw));
             const root = await res.json();
             const data = root.data || {};
 
@@ -163,7 +163,7 @@
                 linkedBomNo: document.getElementById('linkedBomNo').value
             };
 
-            const res = await fetch('/api/bff/workflow/projects', {
+            const res = await fetch('/View/projects', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -174,13 +174,13 @@
         }
 
         async function applyProjectWorkflow(prjId, prjNm) {
-            const res = await fetch('/api/bff/workflow/apply', {
+            const res = await fetch('/View/workflow/apply', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     targetType: 'PROJECT',
                     targetId: prjId,
-                    wfTitle: `[案件承認申請] ${prjId}: ${prjNm}`
+                    wfTitle: `[案件承認申請 (ViewController)] ${prjId}: ${prjNm}`
                 })
             });
             const data = await res.json();

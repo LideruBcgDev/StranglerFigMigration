@@ -25,11 +25,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="Controllers\LegacyDataController.cs" />
-    <None Remove="Models\SharedLoginUser.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Reference Include="System.Configuration" />
     <Reference Include="System.Data" />
     <Reference Include="System.Drawing" />

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Strangler Fig 共通 Web ログイン (ModernBff)</title>
+    <title>Strangler Fig 共通 Web ログイン (Password / OIDC / SAML 2.0)</title>
     <style>
         :root {
             --bg: #0f172a;
@@ -29,11 +29,11 @@
         }
         .login-container {
             width: 100%;
-            max-width: 520px;
+            max-width: 560px;
             background: var(--card);
             border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 28px;
+            padding: 26px;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
         }
         .badge {
@@ -41,128 +41,105 @@
             background: rgba(59, 130, 246, 0.2);
             color: #93c5fd;
             border: 1px solid rgba(59, 130, 246, 0.4);
-            font-size: 12px;
+            font-size: 11.5px;
             padding: 3px 10px;
             border-radius: 999px;
-            margin-bottom: 10px;
-        }
-        h1 {
-            margin: 0 0 6px 0;
-            font-size: 22px;
-        }
-        p.subtitle {
-            margin: 0 0 20px 0;
-            color: var(--muted);
-            font-size: 13px;
-            line-height: 1.5;
-        }
-        .presets {
-            margin-bottom: 18px;
-        }
-        .presets-title {
-            font-size: 12px;
-            color: var(--muted);
             margin-bottom: 8px;
         }
-        .preset-buttons {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-        }
+        h1 { margin: 0 0 6px 0; font-size: 21px; }
+        p.subtitle { margin: 0 0 16px 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+        .presets { margin-bottom: 14px; }
+        .presets-title { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+        .preset-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
         .preset-btn {
             background: #0f172a;
             border: 1px solid var(--border);
             color: var(--text);
             border-radius: 8px;
             padding: 8px;
-            font-size: 12px;
+            font-size: 11.5px;
             cursor: pointer;
             text-align: left;
-            transition: border-color 0.15s, background 0.15s;
         }
-        .preset-btn:hover {
-            border-color: var(--primary);
-            background: rgba(59, 130, 246, 0.1);
-        }
-        .preset-btn strong {
-            display: block;
-            color: #60a5fa;
-            margin-bottom: 2px;
-        }
-        .form-group {
-            margin-bottom: 14px;
-        }
-        label {
-            display: block;
-            font-size: 13px;
-            margin-bottom: 6px;
-            color: #cbd5e1;
-        }
+        .preset-btn:hover { border-color: var(--primary); background: rgba(59, 130, 246, 0.1); }
+        .preset-btn strong { display: block; color: #60a5fa; margin-bottom: 2px; }
+        .form-group { margin-bottom: 12px; }
+        label { display: block; font-size: 12.5px; margin-bottom: 5px; color: #cbd5e1; }
         input {
             width: 100%;
-            padding: 10px 12px;
+            padding: 9px 12px;
             border-radius: 8px;
             border: 1px solid var(--border);
             background: #0f172a;
             color: var(--text);
-            font-size: 14px;
-        }
-        input:focus {
-            outline: none;
-            border-color: var(--primary);
+            font-size: 13.5px;
         }
         button.submit-btn {
             width: 100%;
-            padding: 12px;
+            padding: 11px;
             border: none;
             border-radius: 8px;
             background: var(--primary);
             color: white;
-            font-size: 15px;
+            font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            margin-top: 6px;
+            margin-top: 4px;
         }
-        button.submit-btn:hover {
-            background: var(--primary-hover);
+        button.submit-btn:hover { background: var(--primary-hover); }
+        .sso-divider {
+            margin: 18px 0 12px 0;
+            text-align: center;
+            font-size: 12px;
+            color: var(--muted);
+            border-top: 1px solid var(--border);
+            padding-top: 14px;
         }
+        .sso-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .sso-btn {
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid #475569;
+            background: #0f172a;
+            color: #f8fafc;
+            font-size: 12.5px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+        }
+        .sso-btn.oidc { border-color: #38bdf8; color: #7dd3fc; }
+        .sso-btn.oidc:hover { background: rgba(56, 189, 248, 0.15); }
+        .sso-btn.saml { border-color: #a855f7; color: #d8b4fe; }
+        .sso-btn.saml:hover { background: rgba(168, 85, 247, 0.15); }
         .result-box {
-            margin-top: 18px;
-            padding: 14px;
+            margin-top: 16px;
+            padding: 12px;
             border-radius: 8px;
             background: #0f172a;
             border: 1px solid var(--border);
             font-size: 12px;
             display: none;
         }
-        .result-box.active {
-            display: block;
-        }
-        .result-title {
-            font-weight: 600;
-            color: var(--success);
-            margin-bottom: 8px;
-        }
-        pre {
-            margin: 0;
-            white-space: pre-wrap;
-            word-break: break-all;
-            font-family: Consolas, monospace;
-            color: #e2e8f0;
-        }
+        .result-box.active { display: block; }
+        .result-title { font-weight: 600; color: var(--success); margin-bottom: 6px; }
+        pre { margin: 0; white-space: pre-wrap; word-break: break-all; font-family: Consolas, monospace; color: #e2e8f0; max-height: 180px; overflow: auto; }
     </style>
 </head>
 <body>
     <div class="login-container">
-        <span class="badge">ModernBff Authentication &amp; Redis Shared Session</span>
-        <h1>Strangler Fig 共通ログイン</h1>
+        <span class="badge">ModernBff 統合認証 (USR_TBL / OIDC / SAML 2.0) &amp; Redis 共有セッション</span>
+        <h1>Strangler Fig 共通 Web ログイン</h1>
         <p class="subtitle">
-            ブラウザおよび WinForms (WebView2) 共通の Web ログイン画面です。<br />
-            ログインすると <code>loginuser</code>（ユーザ・組織・権限）が Redis に保存され、ModernBff と LegacyMvc の双方で共有されます。
+            レガシー側にあった SAML / OIDC 認証を廃止し、モダン Web サイト (<code>ModernBff</code>) に集約しました。<br />
+            どの認証方式でも <code>USR_TBL</code> の有効フラグと組織・権限を引き当て、Redis に共通 <code>loginuser</code> を発行します。
         </p>
 
         <div class="presets">
-            <div class="presets-title">ワンクリック検証アカウント選択（パスワード共通: <code>pass123</code>）</div>
+            <div class="presets-title">対象ユーザ選択（USR_TBL 登録アカウント / パスワード共通: <code>pass123</code>）</div>
             <div class="preset-buttons">
                 <button type="button" class="preset-btn" onclick="selectPreset('yamada')">
                     <strong>yamada (山田 太郎)</strong>
@@ -179,17 +156,31 @@
             </div>
         </div>
 
-        <form id="loginForm" onsubmit="handleLogin(event)">
+        <form id="loginForm" onsubmit="handlePasswordLogin(event)">
             <div class="form-group">
-                <label for="userId">ユーザID</label>
+                <label for="userId">ユーザID (USR_TBL.USR_ID / IdP NameID)</label>
                 <input type="text" id="userId" value="yamada" required />
             </div>
             <div class="form-group">
-                <label for="password">パスワード</label>
+                <label for="password">パスワード (通常ログイン時のみ使用)</label>
                 <input type="password" id="password" value="pass123" required />
             </div>
-            <button type="submit" class="submit-btn" id="loginBtn">ログインして loginuser を共有</button>
+            <button type="submit" class="submit-btn" id="loginBtn">① 通常ログイン (USR_TBL ID/Password)</button>
         </form>
+
+        <div class="sso-divider">
+            または モダン Web サイトに統合された SSO 認証 (OIDC / SAML 2.0) でログイン
+        </div>
+        <div class="sso-buttons">
+            <button type="button" class="sso-btn oidc" onclick="handleSsoLogin('OIDC')">
+                ② OIDC (OpenID Connect) 認証<br/>
+                <span style="font-size:10.5px;font-weight:normal;color:#94a3b8;">(/api/bff/auth/sso [OIDC])</span>
+            </button>
+            <button type="button" class="sso-btn saml" onclick="handleSsoLogin('SAML2')">
+                ③ SAML 2.0 Assertion 認証<br/>
+                <span style="font-size:10.5px;font-weight:normal;color:#94a3b8;">(/api/bff/auth/saml2/acs)</span>
+            </button>
+        </div>
 
         <div class="result-box" id="resultBox">
             <div class="result-title" id="resultTitle"></div>
@@ -203,24 +194,32 @@
             document.getElementById('password').value = 'pass123';
         }
 
-        async function handleLogin(e) {
+        async function handlePasswordLogin(e) {
             e.preventDefault();
-            const btn = document.getElementById('loginBtn');
+            await sendAuthRequest('/api/bff/auth/login', {
+                userId: document.getElementById('userId').value,
+                password: document.getElementById('password').value
+            });
+        }
+
+        async function handleSsoLogin(protocol) {
+            const nameId = document.getElementById('userId').value || 'yamada';
+            await sendAuthRequest('/api/bff/auth/sso', {
+                protocol: protocol,
+                nameId: nameId
+            });
+        }
+
+        async function sendAuthRequest(url, bodyObj) {
             const resultBox = document.getElementById('resultBox');
             const resultTitle = document.getElementById('resultTitle');
             const resultJson = document.getElementById('resultJson');
 
-            btn.disabled = true;
-            btn.textContent = '認証中...';
-
             try {
-                const response = await fetch('/api/bff/auth/login', {
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        userId: document.getElementById('userId').value,
-                        password: document.getElementById('password').value
-                    })
+                    body: JSON.stringify(bodyObj)
                 });
 
                 const data = await response.json();
@@ -228,10 +227,9 @@
 
                 if (response.ok) {
                     resultTitle.style.color = '#10b981';
-                    resultTitle.textContent = '✓ ログイン成功 (Redis 共有セッション確立)';
+                    resultTitle.textContent = '✓ 認証成功 (' + (data.authenticationMethod || 'USR_TBL') + ')';
                     resultJson.textContent = JSON.stringify(data, null, 2);
 
-                    // WinFormsClient (WebView2) から開かれている場合はホストアプリへ loginuser とトークンを通知
                     if (window.chrome && window.chrome.webview) {
                         window.chrome.webview.postMessage(JSON.stringify({
                             type: 'STRANGLER_LOGIN_SUCCESS',
@@ -240,7 +238,7 @@
                     }
                 } else {
                     resultTitle.style.color = '#f87171';
-                    resultTitle.textContent = '✗ ログイン失敗';
+                    resultTitle.textContent = '✗ 認証失敗';
                     resultJson.textContent = JSON.stringify(data, null, 2);
                 }
             } catch (err) {
@@ -248,9 +246,6 @@
                 resultTitle.style.color = '#f87171';
                 resultTitle.textContent = '✗ 通信エラー';
                 resultJson.textContent = err.toString();
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'ログインして loginuser を共有';
             }
         }
     </script>

@@ -103,7 +103,7 @@
         let cachedData = { integratedProjects: [], availableItems: [], availableDrawings: [], allWorkflows: [] };
 
         async function loadWorkflowData() {
-            const res = await fetch('/api/bff/workflow/projects');
+            const res = await fetch('/View/projects');
             const root = await res.json();
             cachedData = root.data || {};
             updateTargetOptions();
@@ -183,7 +183,7 @@
                 targetId: document.getElementById('targetId').value,
                 wfTitle: document.getElementById('wfTitle').value
             };
-            const res = await fetch('/api/bff/workflow/apply', {
+            const res = await fetch('/View/workflow/apply', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -195,14 +195,14 @@
         }
 
         async function verifyWf(wfId) {
-            const res = await fetch('/api/bff/workflow/verify?wfId=' + encodeURIComponent(wfId), { method: 'POST' });
+            const res = await fetch('/View/workflow/verify?wfId=' + encodeURIComponent(wfId), { method: 'POST' });
             const data = await res.json();
             document.getElementById('txLog').textContent = JSON.stringify(data, null, 2);
             await loadWorkflowData();
         }
 
         async function approveWf(wfId, simulateError) {
-            const url = `/api/bff/workflow/complete?wfId=${encodeURIComponent(wfId)}&simulateDrawingError=${simulateError}`;
+            const url = `/View/workflow/approve?wfId=${encodeURIComponent(wfId)}&simulateDrawingError=${simulateError}`;
             const res = await fetch(url, { method: 'POST' });
             const data = await res.json();
             document.getElementById('txLog').textContent = JSON.stringify(data, null, 2);

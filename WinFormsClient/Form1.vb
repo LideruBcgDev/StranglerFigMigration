@@ -163,23 +163,25 @@ Public Class Form1
             .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         }
         cmbRoute.Items.AddRange(New Object() {
+            "/api/status",
+            "/api/items",
+            "/api/drawings",
+            "/api/projects",
+            "/Client/items",
+            "/Client/customer/1",
+            "/View/projects",
+            "/View/drawings",
+            "/View/workflow/approve?wfId=WF-9001&simulateDrawingError=false",
+            "/View/workflow/approve?wfId=WF-9002&simulateDrawingError=true",
+            "/legacy-api/Client/items",
+            "/legacy-api/View/drawings",
             "/legacy-api/LegacyPortal.aspx",
-            "/api/bff/workflow/projects",
-            "/api/bff/workflow/complete?wfId=WF-9001&simulateDrawingError=false",
-            "/api/bff/workflow/complete?wfId=WF-9002&simulateDrawingError=true",
-            "/api/bff/items",
-            "/api/bff/items/drawings",
-            "/legacy-api/LegacyData/GetItems",
-            "/legacy-api/LegacyData/GetDrawings",
+            "/api/bff/auth/providers",
             "/api/bff/auth/users",
-            "/api/bff/customer/1",
-            "/api/bff/customer/1?useLegacyFallback=true",
             "/api/bff/auth/me",
-            "/legacy-api/LegacyData/GetCustomer?id=1",
             "/api/bff/mcp/streamable?tool=get_customer_strangler&source=modern",
             "/api/bff/mcp/sse?oneShot=true&customerId=1",
-            "/api/bff/mcp/bridge/compare",
-            "/api/bff/mcp/bridge/invoke/check_permission?customerId=1"
+            "/api/bff/mcp/bridge/compare"
         })
         cmbRoute.SelectedIndex = 0
 

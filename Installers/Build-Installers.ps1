@@ -51,7 +51,7 @@ New-Item -ItemType Directory -Path $legacyOutDir -Force | Out-Null
 
 dotnet publish (Join-Path $SolutionRoot "YarpGateway\YarpGateway.csproj") -c $Configuration -r $Runtime --self-contained $scFlag -o $gwOutDir
 dotnet publish (Join-Path $SolutionRoot "ModernBff\ModernBff.csproj")     -c $Configuration -r $Runtime --self-contained $scFlag -o $bffOutDir
-dotnet build   (Join-Path $SolutionRoot "LegacyMvc\LegacyMvc.csproj")     -c $Configuration
+dotnet build   (Join-Path $SolutionRoot "LegacyMvc\LegacyMvc.vbproj")     -c $Configuration
 
 $legacySrcDir = Join-Path $SolutionRoot "LegacyMvc"
 New-Item -ItemType Directory -Path (Join-Path $legacyOutDir "bin") -Force | Out-Null

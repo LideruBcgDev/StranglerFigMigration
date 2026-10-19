@@ -116,6 +116,9 @@ Public Class Form1
             .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         }
         cmbRoute.Items.AddRange(New Object() {
+            "/api/bff/workflow/projects",
+            "/api/bff/workflow/complete?wfId=WF-9001&simulateDrawingError=false",
+            "/api/bff/workflow/complete?wfId=WF-9002&simulateDrawingError=true",
             "/api/bff/items",
             "/legacy-api/LegacyData/GetItems",
             "/api/bff/auth/users",

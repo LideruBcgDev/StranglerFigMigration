@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- netstandard2.0 にすることで LegacyMvc (.NET Framework 4.8.1) と ModernBff.MDL (.NET 9 / .NET 10) の双方から直接プロジェクト参照可能 -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>LegacyMvc.MDL</RootNamespace>
+    <AssemblyName>LegacyMvc.MDL</AssemblyName>
+    <OptionExplicit>On</OptionExplicit>
+    <OptionStrict>On</OptionStrict>
+    <OptionCompare>Binary</OptionCompare>
+    <OptionInfer>On</OptionInfer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="3.1.32" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="3.1.32" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="3.1.32" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="3.1.18" />
+    <PackageReference Include="Oracle.EntityFrameworkCore" Version="3.19.180" />
+  </ItemGroup>
+
+</Project>

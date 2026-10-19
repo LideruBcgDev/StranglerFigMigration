@@ -1,10 +1,9 @@
 using System;
 using System.Configuration;
-using System.Linq;
 using System.Web.Mvc;
-using LegacyMvc.Data;
+using LegacyMvc.MDL.Commands;
+using LegacyMvc.MDL.Data;
 using LegacyMvc.Models;
-using Microsoft.EntityFrameworkCore;
 
 namespace LegacyMvc.Controllers
 {
@@ -17,7 +16,6 @@ namespace LegacyMvc.Controllers
         {
             string sessionValue = "RedisOffline";
 
-            // ModernBff の Web ログイン画面 (USR_TBL 認証) で確立された共有 loginuser（ユーザ・組織・権限）を Redis から取得
             SharedLoginUser loginUser = SharedLoginUser.ResolveFromRedis(Request, out string loginUserLookupStatus);
 
             try
@@ -63,37 +61,34 @@ namespace LegacyMvc.Controllers
 
         // GET: /LegacyData/GetItems?itmCd=ITM-001
         // YARP 経由: /legacy-api/LegacyData/GetItems?itmCd=ITM-001
+        // 実際の検索処理は LegacyMvc.MDL.Data.LegacyItemQueryCommand で実行
         [HttpGet]
         public ActionResult GetItems(string itmCd = null)
         {
             SharedLoginUser loginUser = SharedLoginUser.ResolveFromRedis(Request, out string loginUserLookupStatus);
 
-            using (var db = LegacyStranglerDbContext.CreateFromWebConfig(out string dbProviderStatus))
+            string configuredProvider = ConfigurationManager.AppSettings["DatabaseProvider"] ?? "SqlServer";
+            string connStr = ConfigurationManager.ConnectionStrings[configuredProvider]?.ConnectionString ?? string.Empty;
+
+            var queryCmd = new LegacyItemQueryCommand();
+            var (items, dbProviderStatus) = queryCmd.Execute(configuredProvider, connStr, itmCd);
+
+            var responseData = new
             {
-                var query = db.ItmTbl.AsNoTracking().AsQueryable();
-                if (!string.IsNullOrWhiteSpace(itmCd))
-                {
-                    string code = itmCd.Trim();
-                    query = query.Where(i => i.ItmCd.ToLower() == code.ToLower());
-                }
+                Source = "LegacyMvc -> LegacyMvc.MDL (LegacyItemQueryCommand + EF Core)",
+                Table = "ITM_TBL (品目マスタ)",
+                ConfiguredProvider = configuredProvider,
+                DatabaseProviderStatus = dbProviderStatus,
+                SharedLoginUser = loginUser,
+                LoginUserLookupStatus = loginUserLookupStatus,
+                ItemCount = items.Count,
+                Items = items,
+                LegacyBoms = LegacyApprovalStore.GetAllBoms(),
+                LegacyDrawings = LegacyApprovalStore.GetAllDrawings(),
+                TimestampUtc = DateTime.UtcNow.ToString("O")
+            };
 
-                var items = query.OrderBy(i => i.ItmCd).ToList();
-
-                var responseData = new
-                {
-                    Source = "LegacyMvc (.NET Framework 4.8.1 ASP.NET MVC + EF Core)",
-                    Table = "ITM_TBL (品目マスタ)",
-                    ConfiguredProvider = ConfigurationManager.AppSettings["DatabaseProvider"] ?? "SqlServer",
-                    DatabaseProviderStatus = dbProviderStatus,
-                    SharedLoginUser = loginUser,
-                    LoginUserLookupStatus = loginUserLookupStatus,
-                    ItemCount = items.Count,
-                    Items = items,
-                    TimestampUtc = DateTime.UtcNow.ToString("O")
-                };
-
-                return Json(responseData, JsonRequestBehavior.AllowGet);
-            }
+            return Json(responseData, JsonRequestBehavior.AllowGet);
         }
     }
 }

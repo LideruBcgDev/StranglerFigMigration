@@ -27,6 +27,7 @@ builder.Services.AddSession(options =>
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect(redisConnectionString));
 builder.Services.AddSingleton<SharedLoginUserStore>();
+builder.Services.AddSingleton<ModernBff.Mcp.StranglerMcpEngine>();
 
 // 4. レガシー MVC を内部呼び出しするための HttpClient 登録
 builder.Services.AddHttpClient("LegacyMvcClient", client =>

@@ -97,7 +97,11 @@ Public Class Form1
             "/api/bff/customer/1",
             "/api/bff/customer/1?useLegacyFallback=true",
             "/api/bff/auth/me",
-            "/legacy-api/LegacyData/GetCustomer?id=1"
+            "/legacy-api/LegacyData/GetCustomer?id=1",
+            "/api/bff/mcp/streamable?tool=get_customer_strangler&source=modern",
+            "/api/bff/mcp/sse?oneShot=true&customerId=1",
+            "/api/bff/mcp/bridge/compare",
+            "/api/bff/mcp/bridge/invoke/check_permission?customerId=1"
         })
         cmbRoute.SelectedIndex = 0
 

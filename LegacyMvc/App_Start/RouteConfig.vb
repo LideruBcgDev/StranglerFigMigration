@@ -4,6 +4,8 @@ Imports System.Web.Routing
 Public Class RouteConfig
     Public Shared Sub RegisterRoutes(routes As RouteCollection)
         routes.IgnoreRoute("{resource}.axd/{*pathInfo}")
+        ' Web Forms (.aspx) ページへの直接アクセスは MVC ルーティングから除外し、ASP.NET PageHandler に処理させる
+        routes.IgnoreRoute("{*allaspx}", New With {.allaspx = ".*\.aspx(/.*)?"})
 
         routes.MapMvcAttributeRoutes()
 

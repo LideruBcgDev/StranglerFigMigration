@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>net481</TargetFramework>
     <OutputType>Library</OutputType>
+    <!-- ASP.NET Web Application (Web Forms .aspx + MVC ハイブリッド) 用の ProjectTypeGuids -->
+    <ProjectTypeGuids>{349c5851-65df-11da-9384-00065b846f21};{F184B08F-C81C-45F6-A57F-5ABD9991F28F}</ProjectTypeGuids>
     <RootNamespace>LegacyMvc</RootNamespace>
     <AssemblyName>LegacyMvc</AssemblyName>
     <OptionExplicit>On</OptionExplicit>
@@ -12,28 +14,30 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <OutputPath>bin\</OutputPath>
+    <!-- IIS Express ホスティング設定 (Port 5001) -->
+    <UseIISExpress>true</UseIISExpress>
+    <Use64BitIISExpress />
+    <IISExpressSSLPort />
+    <IISExpressAnonymousAuthentication />
+    <IISExpressWindowsAuthentication />
+    <IISExpressUseClassicPipelineMode />
+    <UseGlobalApplicationHostFile />
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Data\**" />
-    <Compile Remove="Properties\**" />
-    <EmbeddedResource Remove="Data\**" />
-    <EmbeddedResource Remove="Properties\**" />
-    <None Remove="Data\**" />
-    <None Remove="Properties\**" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Remove="App_Start\RouteConfig.cs" />
     <None Remove="Controllers\LegacyDataController.cs" />
-    <None Remove="Global.asax.cs" />
     <None Remove="Models\SharedLoginUser.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <Reference Include="System.Configuration" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Drawing" />
     <Reference Include="System.Web" />
     <Reference Include="System.Web.Abstractions" />
+    <Reference Include="System.Web.ApplicationServices" />
+    <Reference Include="System.Web.DynamicData" />
+    <Reference Include="System.Web.Extensions" />
     <Reference Include="System.Web.Routing" />
     <Reference Include="System.Web.Services" />
   </ItemGroup>
@@ -50,5 +54,29 @@
     <!-- サーバー側の実際のコマンド・DB処理を行う LegacyMvc.MDL (VB.NET) を参照 -->
     <ProjectReference Include="..\LegacyMvc.MDL\LegacyMvc.MDL.vbproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Global.asax" />
+    <Content Include="LegacyPortal.aspx" />
+    <Content Include="Web.config" />
+  </ItemGroup>
+
+  <ProjectExtensions>
+    <VisualStudio>
+      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}">
+        <WebProjectProperties>
+          <UseIIS>True</UseIIS>
+          <AutoAssignPort>False</AutoAssignPort>
+          <DevelopmentServerPort>5001</DevelopmentServerPort>
+          <DevelopmentServerVPath>/</DevelopmentServerVPath>
+          <IISUrl>http://localhost:5001/</IISUrl>
+          <NTLMAuthentication>False</NTLMAuthentication>
+          <UseCustomServer>False</UseCustomServer>
+          <CustomServerUrl></CustomServerUrl>
+          <SaveServerSettingsInUserFile>False</SaveServerSettingsInUserFile>
+        </WebProjectProperties>
+      </FlavorProperties>
+    </VisualStudio>
+  </ProjectExtensions>
 
 </Project>

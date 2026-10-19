@@ -55,9 +55,10 @@ dotnet build   (Join-Path $SolutionRoot "LegacyMvc\LegacyMvc.vbproj")     -c $Co
 
 $legacySrcDir = Join-Path $SolutionRoot "LegacyMvc"
 New-Item -ItemType Directory -Path (Join-Path $legacyOutDir "bin") -Force | Out-Null
-Copy-Item (Join-Path $legacySrcDir "bin\*")      -Destination (Join-Path $legacyOutDir "bin") -Recurse -Force
-Copy-Item (Join-Path $legacySrcDir "Global.asax") -Destination $legacyOutDir -Force
-Copy-Item (Join-Path $legacySrcDir "Web.config")  -Destination $legacyOutDir -Force
+Copy-Item (Join-Path $legacySrcDir "bin\*")             -Destination (Join-Path $legacyOutDir "bin") -Recurse -Force
+Copy-Item (Join-Path $legacySrcDir "Global.asax")        -Destination $legacyOutDir -Force
+Copy-Item (Join-Path $legacySrcDir "LegacyPortal.aspx")  -Destination $legacyOutDir -Force
+Copy-Item (Join-Path $legacySrcDir "Web.config")         -Destination $legacyOutDir -Force
 
 Copy-Item (Join-Path $SolutionRoot "docker-compose.yml")                   -Destination $serverStageDir -Force
 Copy-Item (Join-Path $PSScriptRoot "ServerInstaller\Install-Server.ps1")   -Destination $serverStageDir -Force

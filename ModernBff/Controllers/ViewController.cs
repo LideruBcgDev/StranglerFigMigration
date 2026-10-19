@@ -1,20 +1,22 @@
+using System.Security.Claims;
+using System.Security.Principal;
 using LegacyMvc.MDL.Commands;
 using Microsoft.AspNetCore.Mvc;
 using ModernBff.Data;
 using ModernBff.MDL.Commands;
+using ModernBff.Models;
 using ModernBff.Services;
 
 namespace ModernBff.Controllers;
 
 /// <summary>
-/// 【Web ブラウザ専用 REST API コントローラー (ModernBff へ移行済)】
-/// 元々 LegacyMvc に AppRootUrl = "/api/.*", RoutePrefix = "View" として存在していたブラウザ向け REST API を
-/// ModernBff 側へ移行したコントローラーです。
-/// URL パス (`/api/View/...` および `/View/...`) で図面管理・案件統合管理・ワークフロー管理を提供します。
+/// 【Web ブラウザ専用コントローラー (RoutePrefix = "View")】
+/// ViewController では IIdentity (HttpContext.User.Identity) よりユーザ情報 (LoginUser) を取得して
+/// command.IParam.LoginUser に設定し、command.Validate() で利用可否を判断した上で command.Execute() を実行します。
 /// </summary>
 [ApiController]
-[Route("api/View")]
 [Route("View")]
+[Route("api/View")]
 public class ViewController : ControllerBase
 {
     private readonly IServiceProvider _serviceProvider;
@@ -35,62 +37,180 @@ public class ViewController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/View/drawings?keyword=DRW
-    /// Web ブラウザからの図面 (DRW_TBL) 検索 (実処理は LegacyMvc.MDL VB.NET)
+    /// ViewController 用: IIdentity (HttpContext.User.Identity) より LoginUser を取得し command.IParam.LoginUser に設定します。
+    /// Redis 共有セッションがある場合は HttpContext.User (ClaimsPrincipal / IIdentity) にブリッジした上で取得します。
+    /// </summary>
+    private async Task<(LoginUser? RedisUser, string Source)> PopulateViewIParamFromIIdentityAsync(IParamBase iParam)
+    {
+        string? token = _loginUserStore.ExtractToken(HttpContext);
+        var (redisUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+
+        iParam.SessionId = string.IsNullOrWhiteSpace(token) ? "VIEW-SESSION-STATELESS" : $"REDIS-SESSION:{token}";
+
+        // クエリで検証用 loginUserId が指定された場合 (権限エラー検証用)
+        if (Request.Query.TryGetValue("loginUserId", out var qUser) && !string.IsNullOrWhiteSpace(qUser))
+        {
+            var customIdentity = new GenericIdentity(qUser.ToString(), "QueryOverrideIdentity");
+            HttpContext.User = new GenericPrincipal(customIdentity, new[] { "Viewer" });
+        }
+        else if (redisUser != null && (HttpContext.User?.Identity == null || !HttpContext.User.Identity.IsAuthenticated))
+        {
+            // Redis の共有セッション情報を HttpContext.User (IIdentity) へ投影
+            var claims = new List<Claim>
+            {
+                new(ClaimTypes.Name, redisUser.UserId),
+                new("DisplayName", redisUser.UserName),
+                new("OrgCd", redisUser.OrganizationCode),
+                new("OrgNm", redisUser.OrganizationName)
+            };
+            foreach (string r in redisUser.Roles)
+            {
+                claims.Add(new Claim(ClaimTypes.Role, r));
+            }
+            var claimsIdentity = new ClaimsIdentity(claims, redisUser.AuthenticationMethod);
+            HttpContext.User = new ClaimsPrincipal(claimsIdentity);
+        }
+
+        IIdentity? identity = HttpContext.User?.Identity;
+        if (identity != null && identity.IsAuthenticated && !string.IsNullOrWhiteSpace(identity.Name))
+        {
+            iParam.LoginUser = new CommandLoginUser
+            {
+                UserId = identity.Name,
+                UserName = redisUser?.UserName ?? identity.Name,
+                OrganizationCode = redisUser?.OrganizationCode ?? "ENG-01",
+                OrganizationName = redisUser?.OrganizationName ?? "技術開発部",
+                Roles = redisUser?.Roles ?? new List<string> { "Engineer" },
+                AuthenticationMethod = identity.AuthenticationType ?? "IIdentity",
+                IsAuthenticated = identity.IsAuthenticated,
+                SourceChannel = $"ViewController: IIdentity (Name={identity.Name}, AuthType={identity.AuthenticationType}, Source={loginSource})"
+            };
+        }
+        else
+        {
+            // 未ログイン時の検証用デフォルト IIdentity
+            IIdentity defaultIdentity = new GenericIdentity("suzuki", "DefaultBrowserIdentity");
+            iParam.LoginUser = new CommandLoginUser
+            {
+                UserId = defaultIdentity.Name,
+                UserName = "鈴木 花子",
+                OrganizationCode = "ENG-01",
+                OrganizationName = "技術開発部",
+                Roles = new List<string> { "Engineer" },
+                AuthenticationMethod = defaultIdentity.AuthenticationType ?? "DefaultBrowserIdentity",
+                IsAuthenticated = defaultIdentity.IsAuthenticated,
+                SourceChannel = $"ViewController: IIdentity Fallback (Name={defaultIdentity.Name})"
+            };
+        }
+
+        return (redisUser, iParam.LoginUser.SourceChannel);
+    }
+
+    /// <summary>
+    /// GET /View/drawings?keyword=DRW
+    /// Web ブラウザからの図面 (DRW_TBL) 検索 (ICommand: DrawingSearchCommand.Validate -> Execute)
     /// </summary>
     [HttpGet("drawings")]
     public async Task<IActionResult> GetDrawings([FromQuery] string? keyword = null)
     {
-        string? token = _loginUserStore.ExtractToken(HttpContext);
-        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var cmd = new DrawingSearchCommand();
+        cmd.TypedIParam.Keyword = keyword ?? string.Empty;
+        cmd.TypedIParam.CommandId = "CMD_VIEW_DRAWING_SEARCH";
 
-        var cmd = new LegacyDrawingCrudCommand();
-        var drawings = cmd.Search(keyword);
+        var (_, loginSource) = await PopulateViewIParamFromIIdentityAsync(cmd.IParam);
+
+        try
+        {
+            cmd.Validate();
+            cmd.Execute();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                Controller = "ModernBff.Controllers.ViewController (RoutePrefix: View)",
+                CommandInterface = "LegacyMvc.MDL.Commands.ICommand (DrawingSearchCommand)",
+                IParam = cmd.IParam,
+                OParam = cmd.OParam,
+                Error = ex.Message
+            });
+        }
 
         return Ok(new
         {
-            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: api/View)",
+            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: View)",
             AccessedFrom = "Web Browser",
-            CurrentLoginUser = loginUser,
+            CommandInterface = "LegacyMvc.MDL.Commands.ICommand (DrawingSearchCommand)",
+            ResponseType = cmd.ResponseType,
+            IParam = cmd.IParam,
+            OParam = cmd.OParam,
+            CurrentLoginUser = cmd.IParam.LoginUser,
             LoginUserLookupSource = loginSource,
-            DrawingCount = drawings.Count,
-            Drawings = drawings,
+            DrawingCount = cmd.TypedOParam.Drawings.Count,
+            Drawings = cmd.TypedOParam.Drawings,
             TimestampUtc = DateTime.UtcNow.ToString("O")
         });
     }
 
     /// <summary>
-    /// POST /api/View/drawings
-    /// Web ブラウザからの図面 (DRW_TBL) 登録・更新
+    /// POST /View/drawings
+    /// Web ブラウザからの図面 (DRW_TBL) 登録・更新 (ICommand: DrawingSaveCommand.Validate -> Execute)
     /// </summary>
     [HttpPost("drawings")]
-    public IActionResult RegisterDrawing([FromBody] DrawingRegistrationRequest req)
+    public async Task<IActionResult> RegisterDrawing([FromBody] DrawingRegistrationRequest req)
     {
-        if (string.IsNullOrWhiteSpace(req.DrawingNo) || string.IsNullOrWhiteSpace(req.Title))
-        {
-            return BadRequest(new { message = "図面番号 (DrawingNo) と図面名称 (Title) は必須です。" });
-        }
+        var cmd = new DrawingSaveCommand();
+        cmd.TypedIParam.DrawingNo = req.DrawingNo;
+        cmd.TypedIParam.Title = req.Title;
+        cmd.TypedIParam.ItmCd = req.ItmCd ?? "ITM-001";
+        cmd.TypedIParam.BomNo = req.BomNo ?? string.Empty;
+        cmd.TypedIParam.Revision = req.Revision ?? "Rev.A";
+        cmd.TypedIParam.CommandId = "CMD_VIEW_DRAWING_SAVE";
 
-        var cmd = new LegacyDrawingCrudCommand();
-        var saved = cmd.RegisterOrUpdate(req.DrawingNo, req.Title, req.ItmCd, req.BomNo, req.Revision);
+        await PopulateViewIParamFromIIdentityAsync(cmd.IParam);
+
+        try
+        {
+            cmd.Validate();
+            cmd.Execute();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                Controller = "ModernBff.Controllers.ViewController (RoutePrefix: View)",
+                CommandInterface = "LegacyMvc.MDL.Commands.ICommand (DrawingSaveCommand)",
+                IParam = cmd.IParam,
+                OParam = cmd.OParam,
+                Error = ex.Message
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
 
         return Ok(new
         {
-            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: api/View)",
-            Message = $"[ViewController] 図面 '{saved.DrawingNo} ({saved.Title})' を DRW_TBL に登録・更新しました。",
-            SavedDrawing = saved
+            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: View)",
+            CommandInterface = "LegacyMvc.MDL.Commands.ICommand (DrawingSaveCommand)",
+            ResponseType = cmd.ResponseType,
+            IParam = cmd.IParam,
+            OParam = cmd.OParam,
+            Message = $"[ViewController -> ICommand] 図面 '{cmd.TypedOParam.SavedDrawing.DrawingNo} ({cmd.TypedOParam.SavedDrawing.Title})' を DRW_TBL に登録・更新しました。",
+            SavedDrawing = cmd.TypedOParam.SavedDrawing
         });
     }
 
     /// <summary>
-    /// GET /api/View/projects?keyword=PRJ
+    /// GET /View/projects?keyword=PRJ
     /// Web ブラウザからの案件統合管理 (PRJ_TBL: 品目・図面関連付け) 検索
     /// </summary>
     [HttpGet("projects")]
     public async Task<IActionResult> GetProjects([FromQuery] string? keyword = null)
     {
-        string? token = _loginUserStore.ExtractToken(HttpContext);
-        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var viewParam = new IParamBase { CommandId = "CMD_VIEW_PROJECTS_QUERY" };
+        var (_, loginSource) = await PopulateViewIParamFromIIdentityAsync(viewParam);
 
         using var db = DatabaseConfigurationExtensions.CreateWorkingContextWithFallback(
             _serviceProvider,
@@ -106,10 +226,10 @@ public class ViewController : ControllerBase
 
         return Ok(new
         {
-            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: api/View)",
+            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: View)",
             AccessedFrom = "Web Browser",
             DatabaseProviderStatus = dbProviderStatus,
-            CurrentLoginUser = loginUser,
+            IParamLoginUser = viewParam.LoginUser,
             LoginUserLookupSource = loginSource,
             Data = data,
             TimestampUtc = DateTime.UtcNow.ToString("O")
@@ -117,12 +237,15 @@ public class ViewController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/View/projects
+    /// POST /View/projects
     /// Web ブラウザからの案件統合管理 (PRJ_TBL) 登録・品目／図面関連付け保存
     /// </summary>
     [HttpPost("projects")]
     public async Task<IActionResult> RegisterProject([FromBody] ProjectRegistrationDto dto)
     {
+        var viewParam = new IParamBase { CommandId = "CMD_VIEW_PROJECT_SAVE" };
+        await PopulateViewIParamFromIIdentityAsync(viewParam);
+
         using var db = DatabaseConfigurationExtensions.CreateWorkingContextWithFallback(
             _serviceProvider,
             _configuration,
@@ -134,7 +257,8 @@ public class ViewController : ControllerBase
 
         return Ok(new
         {
-            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: api/View)",
+            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: View)",
+            IParamLoginUser = viewParam.LoginUser,
             Message = $"[ViewController] 案件 '{saved.PrjId} ({saved.PrjNm})' を登録・関連付け保存しました。",
             DatabaseProviderStatus = dbProviderStatus,
             SavedProject = saved
@@ -142,17 +266,17 @@ public class ViewController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/View/workflow/apply
+    /// POST /View/workflow/apply
     /// Web ブラウザからのワークフロー申請 (Step 1: 申請 - 案件/品目/図面)
     /// </summary>
     [HttpPost("workflow/apply")]
     public async Task<IActionResult> ApplyWorkflow([FromBody] WorkflowApplyDto dto)
     {
-        string? token = _loginUserStore.ExtractToken(HttpContext);
-        var (loginUser, _) = await _loginUserStore.GetLoginUserAsync(token);
+        var viewParam = new IParamBase { CommandId = "CMD_VIEW_WF_APPLY" };
+        await PopulateViewIParamFromIIdentityAsync(viewParam);
 
-        string userId = loginUser?.UserId ?? "suzuki";
-        string userName = loginUser?.UserName ?? "鈴木 花子";
+        string userId = viewParam.LoginUser.UserId;
+        string userName = viewParam.LoginUser.UserName;
 
         using var db = DatabaseConfigurationExtensions.CreateWorkingContextWithFallback(
             _serviceProvider,
@@ -168,25 +292,26 @@ public class ViewController : ControllerBase
 
         return Ok(new
         {
-            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: api/View)",
+            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: View)",
+            IParamLoginUser = viewParam.LoginUser,
             Message = $"[ViewController] ワークフロー '{wf.WfId}' を申請しました（対象: {wf.TargetType} / {wf.TargetId}）。",
             Workflow = wf
         });
     }
 
     /// <summary>
-    /// POST /api/View/workflow/verify?wfId=WF-9002
+    /// POST /View/workflow/verify?wfId=WF-9002
     /// Web ブラウザからのワークフロー照査 (Step 2: 照査)
     /// </summary>
     [HttpPost("workflow/verify")]
     [HttpGet("workflow/verify")]
     public async Task<IActionResult> VerifyWorkflow([FromQuery] string wfId)
     {
-        string? token = _loginUserStore.ExtractToken(HttpContext);
-        var (loginUser, _) = await _loginUserStore.GetLoginUserAsync(token);
+        var viewParam = new IParamBase { CommandId = "CMD_VIEW_WF_VERIFY" };
+        await PopulateViewIParamFromIIdentityAsync(viewParam);
 
-        string userId = loginUser?.UserId ?? "sato";
-        string userName = loginUser?.UserName ?? "佐藤 健一";
+        string userId = viewParam.LoginUser.UserId;
+        string userName = viewParam.LoginUser.UserName;
 
         using var db = DatabaseConfigurationExtensions.CreateWorkingContextWithFallback(
             _serviceProvider,
@@ -199,26 +324,27 @@ public class ViewController : ControllerBase
 
         return Ok(new
         {
-            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: api/View)",
+            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: View)",
+            IParamLoginUser = viewParam.LoginUser,
             Message = $"[ViewController] ワークフロー '{wf.WfId}' の照査が完了しました。",
             Workflow = wf
         });
     }
 
     /// <summary>
-    /// POST /api/View/workflow/approve?wfId=WF-9001&simulateDrawingError=false
+    /// POST /View/workflow/approve?wfId=WF-9001&simulateDrawingError=false
     /// Web ブラウザからのワークフロー最終承認 (Step 3: 承認 - 案件承認時は関連品目・図面も一括承認)
     /// </summary>
     [HttpPost("workflow/approve")]
     [HttpGet("workflow/approve")]
     public async Task<IActionResult> ApproveWorkflow([FromQuery] string wfId = "WF-9001", [FromQuery] bool simulateDrawingError = false)
     {
-        string? token = _loginUserStore.ExtractToken(HttpContext);
-        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var viewParam = new IParamBase { CommandId = "CMD_VIEW_WF_APPROVE" };
+        var (_, loginSource) = await PopulateViewIParamFromIIdentityAsync(viewParam);
 
-        string userId = loginUser?.UserId ?? "yamada";
-        string userName = loginUser?.UserName ?? "山田 太郎";
-        string orgName = loginUser?.OrganizationName ?? "第一営業本部";
+        string userId = viewParam.LoginUser.UserId;
+        string userName = viewParam.LoginUser.UserName;
+        string orgName = viewParam.LoginUser.OrganizationName;
 
         using var db = DatabaseConfigurationExtensions.CreateWorkingContextWithFallback(
             _serviceProvider,
@@ -234,9 +360,9 @@ public class ViewController : ControllerBase
 
         return Ok(new
         {
-            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: api/View)",
+            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: View)",
             DatabaseProviderStatus = dbProviderStatus,
-            ExecutedByLoginUser = loginUser,
+            IParamLoginUser = viewParam.LoginUser,
             LoginUserLookupSource = loginSource,
             Result = result,
             TimestampUtc = DateTime.UtcNow.ToString("O")

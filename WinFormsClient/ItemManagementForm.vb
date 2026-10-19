@@ -186,6 +186,22 @@ Public Class ItemManagementForm
             Integer.TryParse(txtStockQty.Text, qty)
 
             Dim payloadObj = New With {
+                .iParam = New With {
+                    .itmCd = txtItmCd.Text.Trim(),
+                    .itmNm = txtItmNm.Text.Trim(),
+                    .category = txtCategory.Text.Trim(),
+                    .unitPrice = price,
+                    .stockQty = qty,
+                    .loginUser = New With {
+                        .userId = "yamada",
+                        .userName = "山田 太郎",
+                        .organizationCode = "SALES-01",
+                        .organizationName = "第一営業本部",
+                        .roles = New String() {"SalesManager", "Approver"},
+                        .authenticationMethod = "WinForms-IParam.LoginUser",
+                        .isAuthenticated = True
+                    }
+                },
                 .itmCd = txtItmCd.Text.Trim(),
                 .itmNm = txtItmNm.Text.Trim(),
                 .category = txtCategory.Text.Trim(),
@@ -199,7 +215,7 @@ Public Class ItemManagementForm
             Dim respText As String = Await resp.Content.ReadAsStringAsync()
 
             Await LoadItemsAsync(String.Empty)
-            lblStatus.Text = $"✓ ClientController (Client/items) 経由で品目 '{txtItmCd.Text}' を登録・更新しました。"
+            lblStatus.Text = $"✓ ClientController (Client/items) -> ICommand (Validate/Execute) 経由で品目 '{txtItmCd.Text}' を登録・更新しました。"
         Catch ex As Exception
             MessageBox.Show("品目登録エラー: " & ex.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try

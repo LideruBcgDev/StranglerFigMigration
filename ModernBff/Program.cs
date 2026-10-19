@@ -3,6 +3,9 @@ using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Windows サービスとしてインストール・起動された場合に対応
+builder.Host.UseWindowsService();
+
 builder.Services.AddControllers();
 
 // 1. AddStackExchangeRedisCache による分散キャッシュ・分散セッションのセットアップ

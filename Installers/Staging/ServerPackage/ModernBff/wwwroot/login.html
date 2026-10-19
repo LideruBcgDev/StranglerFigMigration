@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Strangler Fig 共通 Web ログイン (ModernBff)</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card: #1e293b;
+            --border: #334155;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --success: #10b981;
+            --text: #f8fafc;
+            --muted: #94a3b8;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "Yu Gothic UI", Meiryo, sans-serif;
+            background: radial-gradient(circle at top right, #1e3a8a, #0f172a 60%);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .login-container {
+            width: 100%;
+            max-width: 520px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+        }
+        .badge {
+            display: inline-block;
+            background: rgba(59, 130, 246, 0.2);
+            color: #93c5fd;
+            border: 1px solid rgba(59, 130, 246, 0.4);
+            font-size: 12px;
+            padding: 3px 10px;
+            border-radius: 999px;
+            margin-bottom: 10px;
+        }
+        h1 {
+            margin: 0 0 6px 0;
+            font-size: 22px;
+        }
+        p.subtitle {
+            margin: 0 0 20px 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .presets {
+            margin-bottom: 18px;
+        }
+        .presets-title {
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+        .preset-buttons {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        .preset-btn {
+            background: #0f172a;
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 8px;
+            font-size: 12px;
+            cursor: pointer;
+            text-align: left;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .preset-btn:hover {
+            border-color: var(--primary);
+            background: rgba(59, 130, 246, 0.1);
+        }
+        .preset-btn strong {
+            display: block;
+            color: #60a5fa;
+            margin-bottom: 2px;
+        }
+        .form-group {
+            margin-bottom: 14px;
+        }
+        label {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 6px;
+            color: #cbd5e1;
+        }
+        input {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: #0f172a;
+            color: var(--text);
+            font-size: 14px;
+        }
+        input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        button.submit-btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background: var(--primary);
+            color: white;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 6px;
+        }
+        button.submit-btn:hover {
+            background: var(--primary-hover);
+        }
+        .result-box {
+            margin-top: 18px;
+            padding: 14px;
+            border-radius: 8px;
+            background: #0f172a;
+            border: 1px solid var(--border);
+            font-size: 12px;
+            display: none;
+        }
+        .result-box.active {
+            display: block;
+        }
+        .result-title {
+            font-weight: 600;
+            color: var(--success);
+            margin-bottom: 8px;
+        }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font-family: Consolas, monospace;
+            color: #e2e8f0;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <span class="badge">ModernBff Authentication &amp; Redis Shared Session</span>
+        <h1>Strangler Fig 共通ログイン</h1>
+        <p class="subtitle">
+            ブラウザおよび WinForms (WebView2) 共通の Web ログイン画面です。<br />
+            ログインすると <code>loginuser</code>（ユーザ・組織・権限）が Redis に保存され、ModernBff と LegacyMvc の双方で共有されます。
+        </p>
+
+        <div class="presets">
+            <div class="presets-title">ワンクリック検証アカウント選択（パスワード共通: <code>pass123</code>）</div>
+            <div class="preset-buttons">
+                <button type="button" class="preset-btn" onclick="selectPreset('yamada')">
+                    <strong>yamada (山田 太郎)</strong>
+                    第一営業本部<br />Admin / SalesManager
+                </button>
+                <button type="button" class="preset-btn" onclick="selectPreset('suzuki')">
+                    <strong>suzuki (鈴木 花子)</strong>
+                    CS推進室<br />Operator
+                </button>
+                <button type="button" class="preset-btn" onclick="selectPreset('sato')">
+                    <strong>sato (佐藤 健一)</strong>
+                    内部監査室<br />Auditor / Legacy
+                </button>
+            </div>
+        </div>
+
+        <form id="loginForm" onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label for="userId">ユーザID</label>
+                <input type="text" id="userId" value="yamada" required />
+            </div>
+            <div class="form-group">
+                <label for="password">パスワード</label>
+                <input type="password" id="password" value="pass123" required />
+            </div>
+            <button type="submit" class="submit-btn" id="loginBtn">ログインして loginuser を共有</button>
+        </form>
+
+        <div class="result-box" id="resultBox">
+            <div class="result-title" id="resultTitle"></div>
+            <pre id="resultJson"></pre>
+        </div>
+    </div>
+
+    <script>
+        function selectPreset(id) {
+            document.getElementById('userId').value = id;
+            document.getElementById('password').value = 'pass123';
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const btn = document.getElementById('loginBtn');
+            const resultBox = document.getElementById('resultBox');
+            const resultTitle = document.getElementById('resultTitle');
+            const resultJson = document.getElementById('resultJson');
+
+            btn.disabled = true;
+            btn.textContent = '認証中...';
+
+            try {
+                const response = await fetch('/api/bff/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: document.getElementById('userId').value,
+                        password: document.getElementById('password').value
+                    })
+                });
+
+                const data = await response.json();
+                resultBox.classList.add('active');
+
+                if (response.ok) {
+                    resultTitle.style.color = '#10b981';
+                    resultTitle.textContent = '✓ ログイン成功 (Redis 共有セッション確立)';
+                    resultJson.textContent = JSON.stringify(data, null, 2);
+
+                    // WinFormsClient (WebView2) から開かれている場合はホストアプリへ loginuser とトークンを通知
+                    if (window.chrome && window.chrome.webview) {
+                        window.chrome.webview.postMessage(JSON.stringify({
+                            type: 'STRANGLER_LOGIN_SUCCESS',
+                            payload: data
+                        }));
+                    }
+                } else {
+                    resultTitle.style.color = '#f87171';
+                    resultTitle.textContent = '✗ ログイン失敗';
+                    resultJson.textContent = JSON.stringify(data, null, 2);
+                }
+            } catch (err) {
+                resultBox.classList.add('active');
+                resultTitle.style.color = '#f87171';
+                resultTitle.textContent = '✗ 通信エラー';
+                resultJson.textContent = err.toString();
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'ログインして loginuser を共有';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,3 +1,4 @@
+Imports System.IO
 Imports System.Net
 Imports System.Net.Http
 Imports System.Text.Json
@@ -5,7 +6,7 @@ Imports System.Text.Json
 Public Class Form1
     Inherits Form
 
-    Private Const GatewayBaseUrl As String = "http://localhost:5000/"
+    Private Shared ReadOnly GatewayBaseUrl As String = LoadGatewayBaseUrl()
     Private Const AuthTokenHeaderName As String = "X-Strangler-AuthToken"
     Private Const AuthCookieName As String = "StranglerAuthToken"
 
@@ -18,6 +19,27 @@ Public Class Form1
         .BaseAddress = New Uri(GatewayBaseUrl),
         .Timeout = TimeSpan.FromSeconds(10)
     }
+
+    Private Shared Function LoadGatewayBaseUrl() As String
+        Try
+            Dim settingsPath As String = Path.Combine(AppContext.BaseDirectory, "client-settings.json")
+            If File.Exists(settingsPath) Then
+                Dim json As String = File.ReadAllText(settingsPath)
+                Using doc As JsonDocument = JsonDocument.Parse(json)
+                    Dim prop As JsonElement
+                    If doc.RootElement.TryGetProperty("GatewayBaseUrl", prop) AndAlso prop.ValueKind = JsonValueKind.String Then
+                        Dim url As String = prop.GetString()
+                        If Not String.IsNullOrWhiteSpace(url) Then
+                            Return If(url.EndsWith("/"), url, url & "/")
+                        End If
+                    End If
+                End Using
+            End If
+        Catch
+            ' 設定ファイル読込失敗時はデフォルト値を使用
+        End Try
+        Return "http://localhost:5000/"
+    End Function
 
     Private _currentSessionToken As String = String.Empty
 

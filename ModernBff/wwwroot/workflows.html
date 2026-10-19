@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ワークフロー管理 (申請→照査→承認) - ModernBff.MDL</title>
+    <style>
+        body { margin: 0; font-family: "Segoe UI", "Yu Gothic UI", Meiryo, sans-serif; background: #0f172a; color: #f8fafc; }
+        header { background: #1e293b; border-bottom: 1px solid #334155; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+        header h1 { margin: 0; font-size: 18px; color: #38bdf8; }
+        nav a { color: #cbd5e1; margin-left: 16px; text-decoration: none; font-size: 13px; }
+        nav a:hover { color: #fff; text-decoration: underline; }
+        .container { max-width: 1240px; margin: 20px auto; padding: 0 16px; display: grid; grid-template-columns: 360px 1fr; gap: 20px; }
+        .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 18px; }
+        h2 { margin: 0 0 12px 0; font-size: 16px; color: #93c5fd; border-bottom: 1px solid #334155; padding-bottom: 8px; }
+        .form-group { margin-bottom: 12px; }
+        label { display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px; }
+        select, input { width: 100%; padding: 8px 10px; border: 1px solid #475569; border-radius: 6px; background: #0f172a; color: #fff; font-size: 13px; box-sizing: border-box; }
+        button { padding: 8px 12px; border: none; border-radius: 6px; background: #3b82f6; color: #fff; font-weight: 600; cursor: pointer; font-size: 12px; }
+        button:hover { background: #2563eb; }
+        button.verify-btn { background: #f59e0b; color: #0f172a; }
+        button.verify-btn:hover { background: #d97706; }
+        button.approve-btn { background: #10b981; }
+        button.approve-btn:hover { background: #059669; }
+        button.rollback-btn { background: #ef4444; }
+        button.rollback-btn:hover { background: #dc2626; }
+        table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+        th, td { border-bottom: 1px solid #334155; padding: 10px 8px; text-align: left; }
+        th { color: #94a3b8; font-weight: 600; background: #0f172a; }
+        .step-badge { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+        .step-applied { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+        .step-verified { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+        .step-approved { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        pre { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px; font-size: 12px; color: #e2e8f0; max-height: 260px; overflow: auto; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <h1>[モダン側 Web画面] ワークフロー管理 (申請 → 照査 → 承認) - 案件/品目/図面 対応</h1>
+        </div>
+        <nav>
+            <a href="/login">共通ログイン</a>
+            <a href="/legacy-drawings">レガシー図面管理(DRW_TBL)</a>
+            <a href="/projects">モダン案件統合管理(PRJ_TBL)</a>
+            <a href="/workflows"><strong>モダンワークフロー管理(WF_TBL)</strong></a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <!-- 左ペイン: 新規ワークフロー申請 (案件 / 品目 / 図面 から選択可能) -->
+        <div class="card">
+            <h2>1. 新規ワークフロー申請 (Apply)</h2>
+            <p style="font-size:12px;color:#94a3b8;margin-top:0;">
+                案件 (PRJ_TBL)、品目 (ITM_TBL)、図面 (DRW_TBL) のいずれからでも申請できます。<br/>
+                ※ <strong>案件</strong>を承認した場合は、関連づいている品目と図面も同一トランザクションで一括承認されます。
+            </p>
+            <form onsubmit="submitApply(event)">
+                <div class="form-group">
+                    <label>申請対象種別 (TARGET_TYPE)</label>
+                    <select id="targetType" onchange="updateTargetOptions()">
+                        <option value="PROJECT">PROJECT (案件統合管理から申請)</option>
+                        <option value="ITEM">ITEM (品目マスタ ITM_TBL から申請)</option>
+                        <option value="DRAWING">DRAWING (図面マスタ DRW_TBL から申請)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>申請対象コード (TARGET_ID)</label>
+                    <select id="targetId"></select>
+                </div>
+                <div class="form-group">
+                    <label>申請件名 (任意・空欄時は自動生成)</label>
+                    <input type="text" id="wfTitle" placeholder="例: 量産移行に伴う設計一括承認申請" />
+                </div>
+                <button type="submit" style="width:100%;padding:10px;">ワークフローを申請する (Step 1: 申請)</button>
+            </form>
+
+            <h2 style="margin-top:22px;">トランザクション実行ログ</h2>
+            <pre id="txLog">ワークフローの「照査」または「承認」ボタンを押すと、ここに新旧連動トランザクション結果が表示されます。</pre>
+        </div>
+
+        <!-- 右ペイン: ワークフロー一覧と 照査(Verify) / 承認(Approve) 操作 -->
+        <div class="card">
+            <h2>2. ワークフロー一覧 (Step 1: 申請済 → Step 2: 照査 → Step 3: 承認)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>WF番号</th>
+                        <th>種別</th>
+                        <th>対象ID</th>
+                        <th>件名</th>
+                        <th>現在のステータス</th>
+                        <th>申請者 / 照査者 / 承認者</th>
+                        <th>アクション (申請→照査→承認)</th>
+                    </tr>
+                </thead>
+                <tbody id="wfTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let cachedData = { integratedProjects: [], availableItems: [], availableDrawings: [], allWorkflows: [] };
+
+        async function loadWorkflowData() {
+            const res = await fetch('/api/bff/workflow/projects');
+            const root = await res.json();
+            cachedData = root.data || {};
+            updateTargetOptions();
+            renderWorkflowTable();
+        }
+
+        function updateTargetOptions() {
+            const type = document.getElementById('targetType').value;
+            const sel = document.getElementById('targetId');
+            sel.innerHTML = '';
+
+            if (type === 'PROJECT') {
+                (cachedData.integratedProjects || []).forEach(row => {
+                    const p = row.project;
+                    const opt = document.createElement('option');
+                    opt.value = p.prjId;
+                    opt.textContent = `${p.prjId}: ${p.prjNm} (品目:${p.targetItmCd} / 図面:${p.linkedDrawingNo})`;
+                    sel.appendChild(opt);
+                });
+            } else if (type === 'ITEM') {
+                (cachedData.availableItems || []).forEach(i => {
+                    const opt = document.createElement('option');
+                    opt.value = i.itmCd;
+                    opt.textContent = `${i.itmCd}: ${i.itmNm} [${i.approvalStatus}]`;
+                    sel.appendChild(opt);
+                });
+            } else if (type === 'DRAWING') {
+                (cachedData.availableDrawings || []).forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d.drawingNo;
+                    opt.textContent = `${d.drawingNo}: ${d.title} [${d.approvalStatus}]`;
+                    sel.appendChild(opt);
+                });
+            }
+        }
+
+        function renderWorkflowTable() {
+            const tbody = document.getElementById('wfTableBody');
+            tbody.innerHTML = '';
+
+            (cachedData.allWorkflows || []).forEach(wf => {
+                const st = wf.wfStatus || '';
+                let badgeCls = 'step-badge step-applied';
+                if (st.includes('VERIFIED')) badgeCls = 'step-badge step-verified';
+                if (st.includes('APPROVED')) badgeCls = 'step-badge step-approved';
+
+                const actors = [
+                    wf.appliedBy ? `申請: ${wf.appliedBy}` : null,
+                    wf.verifiedBy ? `照査: ${wf.verifiedBy}` : null,
+                    wf.approvedBy ? `承認: ${wf.approvedBy}` : null
+                ].filter(Boolean).join('<br/>');
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${wf.wfId}</strong></td>
+                    <td><code>${wf.targetType || 'PROJECT'}</code></td>
+                    <td><strong>${wf.targetId || wf.prjId}</strong></td>
+                    <td>${wf.wfTitle}</td>
+                    <td><span class="${badgeCls}">${wf.wfStatus}</span></td>
+                    <td style="font-size:11px;color:#cbd5e1;">${actors || '-'}</td>
+                    <td>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                            <button type="button" class="verify-btn" onclick="verifyWf('${wf.wfId}')">① 照査 (Verify)</button>
+                            <button type="button" class="approve-btn" onclick="approveWf('${wf.wfId}', false)">② 承認 (Approve)</button>
+                            <button type="button" class="rollback-btn" onclick="approveWf('${wf.wfId}', true)" title="図面エラーをシミュレートして一括ロールバックを確認">異常系ロールバック検証</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function submitApply(e) {
+            e.preventDefault();
+            const payload = {
+                targetType: document.getElementById('targetType').value,
+                targetId: document.getElementById('targetId').value,
+                wfTitle: document.getElementById('wfTitle').value
+            };
+            const res = await fetch('/api/bff/workflow/apply', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            document.getElementById('txLog').textContent = JSON.stringify(data, null, 2);
+            document.getElementById('wfTitle').value = '';
+            await loadWorkflowData();
+        }
+
+        async function verifyWf(wfId) {
+            const res = await fetch('/api/bff/workflow/verify?wfId=' + encodeURIComponent(wfId), { method: 'POST' });
+            const data = await res.json();
+            document.getElementById('txLog').textContent = JSON.stringify(data, null, 2);
+            await loadWorkflowData();
+        }
+
+        async function approveWf(wfId, simulateError) {
+            const url = `/api/bff/workflow/complete?wfId=${encodeURIComponent(wfId)}&simulateDrawingError=${simulateError}`;
+            const res = await fetch(url, { method: 'POST' });
+            const data = await res.json();
+            document.getElementById('txLog').textContent = JSON.stringify(data, null, 2);
+            await loadWorkflowData();
+        }
+
+        loadWorkflowData();
+    </script>
+</body>
+</html>

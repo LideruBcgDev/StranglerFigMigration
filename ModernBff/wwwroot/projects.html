@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>案件統合管理 (PRJ_TBL) - ModernBff.MDL</title>
+    <style>
+        body { margin: 0; font-family: "Segoe UI", "Yu Gothic UI", Meiryo, sans-serif; background: #0f172a; color: #f8fafc; }
+        header { background: #1e293b; border-bottom: 1px solid #334155; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+        header h1 { margin: 0; font-size: 18px; color: #60a5fa; }
+        nav a { color: #cbd5e1; margin-left: 16px; text-decoration: none; font-size: 13px; }
+        nav a:hover { color: #fff; text-decoration: underline; }
+        .container { max-width: 1200px; margin: 20px auto; padding: 0 16px; display: grid; grid-template-columns: 370px 1fr; gap: 20px; }
+        .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 18px; }
+        h2 { margin: 0 0 12px 0; font-size: 16px; color: #93c5fd; border-bottom: 1px solid #334155; padding-bottom: 8px; }
+        .form-group { margin-bottom: 12px; }
+        label { display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px; }
+        input { width: 100%; padding: 8px 10px; border: 1px solid #475569; border-radius: 6px; background: #0f172a; color: #fff; font-size: 13px; box-sizing: border-box; }
+        .checkbox-list { max-height: 110px; overflow-y: auto; background: #0f172a; border: 1px solid #475569; border-radius: 6px; padding: 8px; font-size: 12px; }
+        .checkbox-item { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+        .checkbox-item input { width: auto; }
+        button { padding: 8px 14px; border: none; border-radius: 6px; background: #3b82f6; color: #fff; font-weight: 600; cursor: pointer; font-size: 13px; }
+        button:hover { background: #2563eb; }
+        button.apply-btn { background: #10b981; font-size: 12px; padding: 6px 10px; }
+        button.apply-btn:hover { background: #059669; }
+        .search-bar { display: flex; gap: 8px; margin-bottom: 14px; }
+        .prj-card { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+        .prj-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .prj-title { font-size: 15px; font-weight: 700; color: #f8fafc; }
+        .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+        .badge.approved { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+        .badge.pending { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+        .linked-section { font-size: 12px; color: #94a3b8; margin-top: 6px; line-height: 1.6; }
+        .linked-tag { display: inline-block; background: #1e293b; border: 1px solid #475569; padding: 2px 8px; border-radius: 4px; margin-right: 6px; color: #e2e8f0; }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <h1>[モダン側 Web画面] 案件統合管理 (PRJ_TBL) - 品目(ITM_TBL)・図面(DRW_TBL) 関連付け</h1>
+        </div>
+        <nav>
+            <a href="/login">共通ログイン</a>
+            <a href="/legacy-drawings">レガシー図面管理(DRW_TBL)</a>
+            <a href="/projects"><strong>モダン案件統合管理(PRJ_TBL)</strong></a>
+            <a href="/workflows">モダンワークフロー管理(WF_TBL)</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <!-- 左ペイン: 案件登録＆品目・図面関連付け -->
+        <div class="card">
+            <h2>案件登録・品目／図面の関連付け</h2>
+            <form onsubmit="saveProject(event)">
+                <div class="form-group">
+                    <label>案件ID (PRJ_ID) *</label>
+                    <input type="text" id="prjId" value="PRJ-1003" required />
+                </div>
+                <div class="form-group">
+                    <label>案件名称 (PRJ_NM) *</label>
+                    <input type="text" id="prjNm" value="第3工場 AI外観検査ライン構築案件" required />
+                </div>
+                <div class="form-group">
+                    <label>関連付ける品目 (ITM_TBL から選択・複数可)</label>
+                    <div class="checkbox-list" id="itemCheckboxes">読み込み中...</div>
+                </div>
+                <div class="form-group">
+                    <label>関連付ける図面 (DRW_TBL から選択・複数可)</label>
+                    <div class="checkbox-list" id="drawingCheckboxes">読み込み中...</div>
+                </div>
+                <div class="form-group">
+                    <label>関連 BOM 番号 (LINKED_BOM_NO)</label>
+                    <input type="text" id="linkedBomNo" value="BOM-2026-001" />
+                </div>
+                <button type="submit" style="width:100%;">案件を登録・関連付け保存</button>
+                <div id="saveMsg" style="margin-top:8px;font-size:12px;color:#34d399;"></div>
+            </form>
+        </div>
+
+        <!-- 右ペイン: 案件統合検索・一覧 -->
+        <div class="card">
+            <h2>案件統合一覧（品目・図面・BOM 横断ステータス表示）</h2>
+            <div class="search-bar">
+                <input type="text" id="keyword" placeholder="案件ID・案件名・関連品目・関連図面で検索..." />
+                <button type="button" onclick="loadProjects()">検索</button>
+                <button type="button" onclick="document.getElementById('keyword').value='';loadProjects()">全件表示</button>
+            </div>
+            <div id="projectList"></div>
+        </div>
+    </div>
+
+    <script>
+        async function loadProjects() {
+            const kw = document.getElementById('keyword').value;
+            const res = await fetch('/api/bff/workflow/projects?keyword=' + encodeURIComponent(kw));
+            const root = await res.json();
+            const data = root.data || {};
+
+            // 品目・図面チェックボックスの生成
+            const itemBox = document.getElementById('itemCheckboxes');
+            itemBox.innerHTML = (data.availableItems || []).map((i, idx) => `
+                <label class="checkbox-item">
+                    <input type="checkbox" name="chkItem" value="${i.itmCd}" ${idx === 0 ? 'checked' : ''} />
+                    <span><strong>${i.itmCd}</strong>: ${i.itmNm} (${i.approvalStatus})</span>
+                </label>
+            `).join('');
+
+            const drwBox = document.getElementById('drawingCheckboxes');
+            drwBox.innerHTML = (data.availableDrawings || []).map((d, idx) => `
+                <label class="checkbox-item">
+                    <input type="checkbox" name="chkDrawing" value="${d.drawingNo}" ${idx === 0 ? 'checked' : ''} />
+                    <span><strong>${d.drawingNo}</strong>: ${d.title} (${d.approvalStatus})</span>
+                </label>
+            `).join('');
+
+            // 案件カードの描画
+            const listEl = document.getElementById('projectList');
+            listEl.innerHTML = (data.integratedProjects || []).map(row => {
+                const p = row.project;
+                const isApproved = (p.prjStatus || '').includes('APPROVED');
+                const badgeCls = isApproved ? 'badge approved' : 'badge pending';
+
+                const itemsHtml = (row.linkedItems || []).map(i =>
+                    `<span class="linked-tag">品目: <strong>${i.itmCd}</strong> (${i.itmNm}) [${i.approvalStatus}]</span>`
+                ).join('') || `<span class="linked-tag">品目コード: ${p.targetItmCd || 'なし'}</span>`;
+
+                const drwsHtml = (row.linkedDrawings || []).map(d =>
+                    `<span class="linked-tag">図面: <strong>${d.drawingNo}</strong> (${d.title}) [${d.approvalStatus}]</span>`
+                ).join('') || `<span class="linked-tag">図面番号: ${p.linkedDrawingNo || 'なし'}</span>`;
+
+                const bomStatus = row.legacyBomStatus ? `${row.legacyBomStatus.bomNo} [${row.legacyBomStatus.approvalStatus}]` : p.linkedBomNo;
+
+                return `
+                    <div class="prj-card">
+                        <div class="prj-header">
+                            <div class="prj-title">${p.prjId} : ${p.prjNm}</div>
+                            <div>
+                                <span class="${badgeCls}">${p.prjStatus}</span>
+                                <button type="button" class="apply-btn" style="margin-left:8px;" onclick="applyProjectWorkflow('${p.prjId}', '${p.prjNm}')">この案件でWF申請</button>
+                            </div>
+                        </div>
+                        <div class="linked-section">
+                            <div><strong>関連品目 (ITM_TBL):</strong> ${itemsHtml}</div>
+                            <div><strong>関連図面 (DRW_TBL):</strong> ${drwsHtml}</div>
+                            <div><strong>関連BOM (BOM_TBL):</strong> <span class="linked-tag">${bomStatus}</span></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function saveProject(e) {
+            e.preventDefault();
+            const selectedItems = Array.from(document.querySelectorAll('input[name="chkItem"]:checked')).map(c => c.value).join(',');
+            const selectedDrawings = Array.from(document.querySelectorAll('input[name="chkDrawing"]:checked')).map(c => c.value).join(',');
+
+            const payload = {
+                prjId: document.getElementById('prjId').value,
+                prjNm: document.getElementById('prjNm').value,
+                customerId: 1,
+                targetItmCd: selectedItems || 'ITM-001',
+                linkedDrawingNo: selectedDrawings || 'DRW-2026-001',
+                linkedBomNo: document.getElementById('linkedBomNo').value
+            };
+
+            const res = await fetch('/api/bff/workflow/projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            document.getElementById('saveMsg').textContent = data.message || '保存しました';
+            await loadProjects();
+        }
+
+        async function applyProjectWorkflow(prjId, prjNm) {
+            const res = await fetch('/api/bff/workflow/apply', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    targetType: 'PROJECT',
+                    targetId: prjId,
+                    wfTitle: `[案件承認申請] ${prjId}: ${prjNm}`
+                })
+            });
+            const data = await res.json();
+            alert((data.message || '申請しました') + '\nワークフロー管理画面 (/workflows) に移動して照査・承認を行えます。');
+            await loadProjects();
+        }
+
+        loadProjects();
+    </script>
+</body>
+</html>

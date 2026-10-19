@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>レガシー図面管理 (DRW_TBL) - LegacyMvc.MDL (VB.NET)</title>
+    <style>
+        body { margin: 0; font-family: "Segoe UI", "Yu Gothic UI", Meiryo, sans-serif; background: #f1f5f9; color: #1e293b; }
+        header { background: #1e293b; color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+        header h1 { margin: 0; font-size: 18px; }
+        nav a { color: #93c5fd; margin-left: 16px; text-decoration: none; font-size: 13px; }
+        nav a:hover { text-decoration: underline; }
+        .container { max-width: 1100px; margin: 20px auto; padding: 0 16px; display: grid; grid-template-columns: 340px 1fr; gap: 20px; }
+        .card { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 18px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
+        h2 { margin: 0 0 12px 0; font-size: 16px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
+        .form-group { margin-bottom: 12px; }
+        label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: #475569; }
+        input { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; box-sizing: border-box; }
+        button { padding: 8px 14px; border: none; border-radius: 6px; background: #2563eb; color: #fff; font-weight: 600; cursor: pointer; font-size: 13px; }
+        button:hover { background: #1d4ed8; }
+        button.secondary { background: #059669; }
+        button.secondary:hover { background: #047857; }
+        .search-bar { display: flex; gap: 8px; margin-bottom: 14px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { border-bottom: 1px solid #e2e8f0; padding: 10px 8px; text-align: left; }
+        th { background: #f8fafc; color: #475569; font-weight: 600; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+        .badge.approved { background: #dcfce7; color: #166534; }
+        .badge.pending { background: #fef3c7; color: #92400e; }
+        .status-msg { margin-top: 10px; font-size: 12px; color: #059669; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <h1>[レガシー側 Web画面] 図面管理 (DRW_TBL) - LegacyMvc.MDL (VB.NET)</h1>
+        </div>
+        <nav>
+            <a href="/login">共通ログイン</a>
+            <a href="/legacy-drawings"><strong>レガシー図面管理(DRW_TBL)</strong></a>
+            <a href="/projects">モダン案件統合管理(PRJ_TBL)</a>
+            <a href="/workflows">モダンワークフロー管理(WF_TBL)</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <!-- 左ペイン: 図面の登録・更新 -->
+        <div class="card">
+            <h2>図面 (DRW_TBL) の新規登録・更新</h2>
+            <form onsubmit="registerDrawing(event)">
+                <div class="form-group">
+                    <label>図面番号 (DRAWING_NO) *</label>
+                    <input type="text" id="drawingNo" value="DRW-2026-004" required />
+                </div>
+                <div class="form-group">
+                    <label>図面名称 (TITLE) *</label>
+                    <input type="text" id="title" value="次世代センサー基板配線図" required />
+                </div>
+                <div class="form-group">
+                    <label>対象品目コード (ITM_CD)</label>
+                    <input type="text" id="itmCd" value="ITM-001" />
+                </div>
+                <div class="form-group">
+                    <label>関連 BOM 番号 (BOM_NO)</label>
+                    <input type="text" id="bomNo" value="BOM-2026-001" />
+                </div>
+                <div class="form-group">
+                    <label>改訂番号 (REVISION)</label>
+                    <input type="text" id="revision" value="Rev.A" />
+                </div>
+                <button type="submit" style="width:100%;">DRW_TBL に登録・更新</button>
+                <div class="status-msg" id="regStatus"></div>
+            </form>
+        </div>
+
+        <!-- 右ペイン: 図面一覧の検索・ワークフロー申請 -->
+        <div class="card">
+            <h2>図面マスタ (DRW_TBL) 検索・一覧</h2>
+            <div class="search-bar">
+                <input type="text" id="searchKeyword" placeholder="図面番号・名称・品目コードで検索..." />
+                <button type="button" onclick="loadDrawings()">検索</button>
+                <button type="button" onclick="document.getElementById('searchKeyword').value='';loadDrawings()">全件表示</button>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>図面番号</th>
+                        <th>図面名称</th>
+                        <th>品目コード</th>
+                        <th>BOM番号</th>
+                        <th>Rev</th>
+                        <th>承認ステータス</th>
+                        <th>承認者</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="drawingTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        async function loadDrawings() {
+            const kw = document.getElementById('searchKeyword').value;
+            const res = await fetch('/api/bff/items/drawings?keyword=' + encodeURIComponent(kw));
+            const data = await res.json();
+            const tbody = document.getElementById('drawingTableBody');
+            tbody.innerHTML = '';
+
+            (data.drawings || []).forEach(d => {
+                const isApproved = (d.approvalStatus || '').includes('APPROVED');
+                const badgeClass = isApproved ? 'badge approved' : 'badge pending';
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${d.drawingNo}</strong></td>
+                    <td>${d.title}</td>
+                    <td><code>${d.itmCd || ''}</code></td>
+                    <td><code>${d.bomNo || ''}</code></td>
+                    <td>${d.revision || 'Rev.A'}</td>
+                    <td><span class="${badgeClass}">${d.approvalStatus}</span></td>
+                    <td>${d.approvedBy || '-'}</td>
+                    <td>
+                        <button type="button" class="secondary" onclick="applyDrawingWorkflow('${d.drawingNo}', '${d.title}')">図面WF申請</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function registerDrawing(e) {
+            e.preventDefault();
+            const payload = {
+                drawingNo: document.getElementById('drawingNo').value,
+                title: document.getElementById('title').value,
+                itmCd: document.getElementById('itmCd').value,
+                bomNo: document.getElementById('bomNo').value,
+                revision: document.getElementById('revision').value
+            };
+
+            const res = await fetch('/api/bff/items/drawings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            document.getElementById('regStatus').textContent = data.message || '登録完了';
+            await loadDrawings();
+        }
+
+        async function applyDrawingWorkflow(drawingNo, title) {
+            const res = await fetch('/api/bff/workflow/apply', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    targetType: 'DRAWING',
+                    targetId: drawingNo,
+                    wfTitle: `[図面単体申請] ${drawingNo}: ${title}`
+                })
+            });
+            const data = await res.json();
+            alert((data.message || '申請しました') + '\nワークフロー管理画面 (/workflows) で照査・承認を行えます。');
+        }
+
+        loadDrawings();
+    </script>
+</body>
+</html>

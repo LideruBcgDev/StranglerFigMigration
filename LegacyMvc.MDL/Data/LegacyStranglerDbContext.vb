@@ -4,6 +4,7 @@ Imports System.ComponentModel.DataAnnotations
 Imports System.ComponentModel.DataAnnotations.Schema
 Imports System.Linq
 Imports System.Runtime.InteropServices
+Imports LegacyMvc.MDL.Commands
 Imports Microsoft.EntityFrameworkCore
 
 Namespace Data
@@ -62,6 +63,17 @@ Namespace Data
 
         <Column("STOCK_QTY")>
         Public Property StockQty As Integer
+
+        <Column("APPROVAL_STATUS")>
+        <MaxLength(64)>
+        Public Property ApprovalStatus As String = "DRAFT (未申請)"
+
+        <Column("APPROVED_BY")>
+        <MaxLength(128)>
+        Public Property ApprovedBy As String
+
+        <Column("APPROVED_AT_UTC")>
+        Public Property ApprovedAtUtc As DateTime?
 
         <Column("UPDATED_AT_UTC")>
         Public Property UpdatedAtUtc As DateTime = DateTime.UtcNow
@@ -135,6 +147,7 @@ Namespace Data
                         .Category = "IoTデバイス",
                         .UnitPrice = 48000D,
                         .StockQty = 120,
+                        .ApprovalStatus = "PENDING (承認待ち)",
                         .UpdatedAtUtc = DateTime.UtcNow
                     },
                     New ItmTblEntity With {
@@ -143,6 +156,7 @@ Namespace Data
                         .Category = "ネットワーク機器",
                         .UnitPrice = 195000D,
                         .StockQty = 35,
+                        .ApprovalStatus = "PENDING (承認待ち)",
                         .UpdatedAtUtc = DateTime.UtcNow
                     },
                     New ItmTblEntity With {
@@ -151,6 +165,7 @@ Namespace Data
                         .Category = "ソフトウェア",
                         .UnitPrice = 120000D,
                         .StockQty = 999,
+                        .ApprovalStatus = "DRAFT (未申請)",
                         .UpdatedAtUtc = DateTime.UtcNow
                     }
                 )
@@ -160,22 +175,107 @@ Namespace Data
     End Class
 
     ''' <summary>
-    ''' 【レガシー側コマンド3 (VB.NET)】品目マスタ (ITM_TBL) 検索コマンド (LegacyMvc.MDL.Data.LegacyItemQueryCommand)
+    ''' 【レガシー側 品目(ITM_TBL)管理コマンド (VB.NET)】検索・登録・承認更新
     ''' </summary>
     Public Class LegacyItemQueryCommand
-        Public Function Execute(configuredProvider As String, connectionString As String, Optional itmCd As String = Nothing) As LegacyItemQueryResult
+        Public Function Execute(configuredProvider As String, connectionString As String, Optional keyword As String = Nothing) As LegacyItemQueryResult
             Dim status As String = String.Empty
             Using db As LegacyStranglerDbContext = LegacyStranglerDbContext.Create(configuredProvider, connectionString, status)
                 Dim query As IQueryable(Of ItmTblEntity) = db.ItmTbl.AsNoTracking().AsQueryable()
-                If Not String.IsNullOrWhiteSpace(itmCd) Then
-                    Dim code As String = itmCd.Trim().ToLower()
-                    query = query.Where(Function(i) i.ItmCd.ToLower() = code)
+                If Not String.IsNullOrWhiteSpace(keyword) Then
+                    Dim kw As String = keyword.Trim().ToLower()
+                    query = query.Where(Function(i) i.ItmCd.ToLower().Contains(kw) OrElse i.ItmNm.ToLower().Contains(kw) OrElse i.Category.ToLower().Contains(kw))
                 End If
 
                 Return New LegacyItemQueryResult With {
                     .Items = query.OrderBy(Function(i) i.ItmCd).ToList(),
                     .ProviderStatus = status
                 }
+            End Using
+        End Function
+
+        Public Function RegisterOrUpdate(
+            configuredProvider As String,
+            connectionString As String,
+            itmCd As String,
+            itmNm As String,
+            category As String,
+            unitPrice As Decimal,
+            stockQty As Integer) As ItmTblEntity
+
+            If String.IsNullOrWhiteSpace(itmCd) Then Throw New ArgumentException("品目コード (ITM_CD) は必須です。")
+            If String.IsNullOrWhiteSpace(itmNm) Then Throw New ArgumentException("品目名称 (ITM_NM) は必須です。")
+
+            Dim status As String = String.Empty
+            Using db As LegacyStranglerDbContext = LegacyStranglerDbContext.Create(configuredProvider, connectionString, status)
+                Dim code As String = itmCd.Trim()
+                Dim existing As ItmTblEntity = db.ItmTbl.FirstOrDefault(Function(i) i.ItmCd.ToLower() = code.ToLower())
+
+                If existing Is Nothing Then
+                    existing = New ItmTblEntity With {
+                        .ItmCd = code,
+                        .ItmNm = itmNm.Trim(),
+                        .Category = If(String.IsNullOrWhiteSpace(category), "一般品目", category.Trim()),
+                        .UnitPrice = unitPrice,
+                        .StockQty = stockQty,
+                        .ApprovalStatus = "DRAFT (未申請)",
+                        .UpdatedAtUtc = DateTime.UtcNow
+                    }
+                    db.ItmTbl.Add(existing)
+                Else
+                    existing.ItmNm = itmNm.Trim()
+                    existing.Category = If(String.IsNullOrWhiteSpace(category), existing.Category, category.Trim())
+                    existing.UnitPrice = unitPrice
+                    existing.StockQty = stockQty
+                    existing.UpdatedAtUtc = DateTime.UtcNow
+                End If
+
+                db.SaveChanges()
+                Return existing
+            End Using
+        End Function
+
+        Public Function ApproveItemInTransaction(
+            txContext As SharedTransactionContext,
+            configuredProvider As String,
+            connectionString As String,
+            itmCd As String,
+            userId As String,
+            userName As String) As ItmTblEntity
+
+            If String.IsNullOrWhiteSpace(itmCd) Then Return Nothing
+
+            Dim status As String = String.Empty
+            Using db As LegacyStranglerDbContext = LegacyStranglerDbContext.Create(configuredProvider, connectionString, status)
+                Dim code As String = itmCd.Trim()
+                Dim item As ItmTblEntity = db.ItmTbl.FirstOrDefault(Function(i) i.ItmCd.ToLower() = code.ToLower())
+                If item Is Nothing Then Return Nothing
+
+                Dim prevStatus As String = item.ApprovalStatus
+                Dim prevBy As String = item.ApprovedBy
+                Dim prevAt As DateTime? = item.ApprovedAtUtc
+
+                txContext.RegisterRollbackAction(Sub()
+                                                     Dim st As String = String.Empty
+                                                     Using rbDb As LegacyStranglerDbContext = LegacyStranglerDbContext.Create(configuredProvider, connectionString, st)
+                                                         Dim target = rbDb.ItmTbl.FirstOrDefault(Function(x) x.ItmCd.ToLower() = code.ToLower())
+                                                         If target IsNot Nothing Then
+                                                             target.ApprovalStatus = prevStatus
+                                                             target.ApprovedBy = prevBy
+                                                             target.ApprovedAtUtc = prevAt
+                                                             rbDb.SaveChanges()
+                                                         End If
+                                                     End Using
+                                                 End Sub)
+
+                item.ApprovalStatus = "APPROVED (品目承認済)"
+                item.ApprovedBy = $"{userName} ({userId})"
+                item.ApprovedAtUtc = DateTime.UtcNow
+                item.UpdatedAtUtc = DateTime.UtcNow
+                db.SaveChanges()
+
+                txContext.ExecutionSteps.Add($"[{DateTime.UtcNow:HH:mm:ss.fff}] [LegacyMvc.MDL (VB.NET) LegacyItemQueryCommand] 品目 '{itmCd}' を承認更新しました (Tx={txContext.TransactionId})")
+                Return item
             End Using
         End Function
     End Class

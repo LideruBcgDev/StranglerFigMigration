@@ -1,3 +1,4 @@
+Imports System.Diagnostics
 Imports System.IO
 Imports System.Net
 Imports System.Net.Http
@@ -36,7 +37,6 @@ Public Class Form1
                 End Using
             End If
         Catch
-            ' 設定ファイル読込失敗時はデフォルト値を使用
         End Try
         Return "http://localhost:5000/"
     End Function
@@ -47,6 +47,12 @@ Public Class Form1
     Private lblLoginStatus As Label
     Private WithEvents btnOpenWebLogin As Button
     Private WithEvents btnLogout As Button
+
+    Private pnlScreens As FlowLayoutPanel
+    Private WithEvents btnOpenItemWinForms As Button
+    Private WithEvents btnOpenDrawingWeb As Button
+    Private WithEvents btnOpenProjectWeb As Button
+    Private WithEvents btnOpenWorkflowWeb As Button
 
     Private lblEndpoint As Label
     Private WithEvents cmbRoute As ComboBox
@@ -59,22 +65,22 @@ Public Class Form1
 
     Private Sub InitializeComponent()
         Me.Text = "Strangler Fig 移行検証クライアント (VB.NET WinForms + WebView2 共通ログイン)"
-        Me.Size = New Size(840, 580)
+        Me.Size = New Size(880, 640)
         Me.StartPosition = FormStartPosition.CenterScreen
 
-        ' 上部: ログイン状態パネル (loginuser: ユーザ・組織・権限の表示と Webログイン起動ボタン)
+        ' 1. 上段: ログイン状態パネル
         pnlAuth = New Panel() With {
             .Location = New Point(16, 12),
-            .Size = New Size(792, 46),
+            .Size = New Size(832, 44),
             .BackColor = Color.FromArgb(241, 245, 249),
             .BorderStyle = BorderStyle.FixedSingle,
             .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         }
 
         lblLoginStatus = New Label() With {
-            .Text = "ログイン状態: 未ログイン (Webログインボタンから loginuser を取得してください)",
-            .Location = New Point(10, 13),
-            .Size = New Size(520, 20),
+            .Text = "ログイン状態: 未ログイン (Webログインボタンから USR_TBL 認証で loginuser を取得してください)",
+            .Location = New Point(10, 12),
+            .Size = New Size(560, 20),
             .ForeColor = Color.FromArgb(51, 65, 85),
             .AutoEllipsis = True,
             .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
@@ -82,7 +88,7 @@ Public Class Form1
 
         btnOpenWebLogin = New Button() With {
             .Text = "Webログイン画面を開く",
-            .Location = New Point(540, 8),
+            .Location = New Point(580, 7),
             .Size = New Size(155, 28),
             .BackColor = Color.FromArgb(37, 99, 235),
             .ForeColor = Color.White,
@@ -92,7 +98,7 @@ Public Class Form1
 
         btnLogout = New Button() With {
             .Text = "ログアウト",
-            .Location = New Point(702, 8),
+            .Location = New Point(742, 7),
             .Size = New Size(80, 28),
             .Enabled = False,
             .Anchor = AnchorStyles.Top Or AnchorStyles.Right
@@ -102,16 +108,57 @@ Public Class Form1
         pnlAuth.Controls.Add(btnOpenWebLogin)
         pnlAuth.Controls.Add(btnLogout)
 
-        ' 中段: Gateway 経由のデータ取得操作エリア
+        ' 2. 業務画面ランチャーパネル (レガシーWinForms品目管理 / レガシーWeb図面管理 / モダンWeb案件統合 / モダンWebワークフロー)
+        pnlScreens = New FlowLayoutPanel() With {
+            .Location = New Point(16, 64),
+            .Size = New Size(832, 38),
+            .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
+        }
+
+        btnOpenItemWinForms = New Button() With {
+            .Text = "[レガシー WinForms] 品目(ITM_TBL)管理",
+            .Size = New Size(215, 32),
+            .BackColor = Color.FromArgb(15, 118, 110),
+            .ForeColor = Color.White,
+            .FlatStyle = FlatStyle.Flat
+        }
+
+        btnOpenDrawingWeb = New Button() With {
+            .Text = "[レガシー Web] 図面(DRW_TBL)管理",
+            .Size = New Size(195, 32),
+            .BackColor = Color.FromArgb(71, 85, 105),
+            .ForeColor = Color.White,
+            .FlatStyle = FlatStyle.Flat
+        }
+
+        btnOpenProjectWeb = New Button() With {
+            .Text = "[モダン Web] 案件統合(PRJ_TBL)管理",
+            .Size = New Size(200, 32),
+            .BackColor = Color.FromArgb(29, 78, 216),
+            .ForeColor = Color.White,
+            .FlatStyle = FlatStyle.Flat
+        }
+
+        btnOpenWorkflowWeb = New Button() With {
+            .Text = "[モダン Web] ワークフロー(申請→照査→承認)",
+            .Size = New Size(200, 32),
+            .BackColor = Color.FromArgb(109, 40, 217),
+            .ForeColor = Color.White,
+            .FlatStyle = FlatStyle.Flat
+        }
+
+        pnlScreens.Controls.AddRange(New Control() {btnOpenItemWinForms, btnOpenDrawingWeb, btnOpenProjectWeb, btnOpenWorkflowWeb})
+
+        ' 3. Gateway 経由の API 検証エリア
         lblEndpoint = New Label() With {
             .Text = "Gateway 経由エンドポイント:",
-            .Location = New Point(16, 74),
+            .Location = New Point(16, 116),
             .AutoSize = True
         }
 
         cmbRoute = New ComboBox() With {
-            .Location = New Point(185, 70),
-            .Size = New Size(475, 28),
+            .Location = New Point(185, 112),
+            .Size = New Size(515, 28),
             .DropDownStyle = ComboBoxStyle.DropDownList,
             .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         }
@@ -120,7 +167,9 @@ Public Class Form1
             "/api/bff/workflow/complete?wfId=WF-9001&simulateDrawingError=false",
             "/api/bff/workflow/complete?wfId=WF-9002&simulateDrawingError=true",
             "/api/bff/items",
+            "/api/bff/items/drawings",
             "/legacy-api/LegacyData/GetItems",
+            "/legacy-api/LegacyData/GetDrawings",
             "/api/bff/auth/users",
             "/api/bff/customer/1",
             "/api/bff/customer/1?useLegacyFallback=true",
@@ -135,15 +184,15 @@ Public Class Form1
 
         btnFetchData = New Button() With {
             .Text = "データ取得",
-            .Location = New Point(673, 68),
+            .Location = New Point(713, 110),
             .Size = New Size(135, 30),
             .Anchor = AnchorStyles.Top Or AnchorStyles.Right
         }
 
-        ' 下部: JSON 結果表示テキストボックス
+        ' 4. 下部: JSON 結果表示テキストボックス
         txtResult = New TextBox() With {
-            .Location = New Point(16, 110),
-            .Size = New Size(792, 415),
+            .Location = New Point(16, 150),
+            .Size = New Size(832, 435),
             .Multiline = True,
             .ScrollBars = ScrollBars.Both,
             .ReadOnly = True,
@@ -152,22 +201,47 @@ Public Class Form1
         }
 
         Me.Controls.Add(pnlAuth)
+        Me.Controls.Add(pnlScreens)
         Me.Controls.Add(lblEndpoint)
         Me.Controls.Add(cmbRoute)
         Me.Controls.Add(btnFetchData)
         Me.Controls.Add(txtResult)
     End Sub
 
-    ''' <summary>
-    ''' WebView2 を使った Web ログイン画面 (/login) をモーダル表示し、
-    ''' 認証成功時に loginuser（ユーザ・組織・権限）とセッショントークンを HttpClient に反映します。
-    ''' </summary>
+    Private Sub btnOpenItemWinForms_Click(sender As Object, e As EventArgs) Handles btnOpenItemWinForms.Click
+        Using itemForm As New ItemManagementForm(SharedHttpClient)
+            itemForm.ShowDialog(Me)
+        End Using
+    End Sub
+
+    Private Sub btnOpenDrawingWeb_Click(sender As Object, e As EventArgs) Handles btnOpenDrawingWeb.Click
+        OpenBrowserUrl(GatewayBaseUrl.TrimEnd("/"c) & "/legacy-drawings")
+    End Sub
+
+    Private Sub btnOpenProjectWeb_Click(sender As Object, e As EventArgs) Handles btnOpenProjectWeb.Click
+        OpenBrowserUrl(GatewayBaseUrl.TrimEnd("/"c) & "/projects")
+    End Sub
+
+    Private Sub btnOpenWorkflowWeb_Click(sender As Object, e As EventArgs) Handles btnOpenWorkflowWeb.Click
+        OpenBrowserUrl(GatewayBaseUrl.TrimEnd("/"c) & "/workflows")
+    End Sub
+
+    Private Shared Sub OpenBrowserUrl(url As String)
+        Try
+            Process.Start(New ProcessStartInfo With {
+                .FileName = url,
+                .UseShellExecute = True
+            })
+        Catch ex As Exception
+            MessageBox.Show("ブラウザの起動に失敗しました: " & ex.Message)
+        End Try
+    End Sub
+
     Private Sub btnOpenWebLogin_Click(sender As Object, e As EventArgs) Handles btnOpenWebLogin.Click
         Using loginForm As New WebLoginForm(GatewayBaseUrl)
             If loginForm.ShowDialog(Me) = DialogResult.OK AndAlso Not String.IsNullOrWhiteSpace(loginForm.SessionToken) Then
                 _currentSessionToken = loginForm.SessionToken
 
-                ' HttpClient のヘッダーと CookieContainer の両方にセッショントークンをセット
                 SharedHttpClient.DefaultRequestHeaders.Remove(AuthTokenHeaderName)
                 SharedHttpClient.DefaultRequestHeaders.Add(AuthTokenHeaderName, _currentSessionToken)
                 SharedCookieContainer.Add(New Uri(GatewayBaseUrl), New Cookie(AuthCookieName, _currentSessionToken, "/"))
@@ -177,7 +251,7 @@ Public Class Form1
                 btnLogout.Enabled = True
 
                 txtResult.Text =
-                    "=== Web ログイン成功 (WebView2 -> ModernBff -> Redis 共有セッション) ===" & Environment.NewLine &
+                    "=== Web ログイン成功 (WebView2 -> ModernBff USR_TBL 認証 -> Redis 共有セッション) ===" & Environment.NewLine &
                     $"loginuser : {loginForm.UserSummary}" & Environment.NewLine &
                     $"Token     : {_currentSessionToken}" & Environment.NewLine &
                     New String("-"c, 70) & Environment.NewLine &
@@ -190,7 +264,6 @@ Public Class Form1
         Try
             Await SharedHttpClient.PostAsync("api/bff/auth/logout", Nothing)
         Catch
-            ' ネットワークエラー時もローカル状態はクリアする
         End Try
 
         _currentSessionToken = String.Empty
@@ -203,7 +276,7 @@ Public Class Form1
 
     Private Async Sub btnFetchData_Click(sender As Object, e As EventArgs) Handles btnFetchData.Click
         btnFetchData.Enabled = False
-        Dim relativePath As String = If(cmbRoute.SelectedItem?.ToString(), "/api/bff/customer/1")
+        Dim relativePath As String = If(cmbRoute.SelectedItem?.ToString(), "/api/bff/workflow/projects")
 
         txtResult.Text = $"Gateway ({GatewayBaseUrl.TrimEnd("/"c)}{relativePath}) へリクエスト送信中..." & Environment.NewLine
 

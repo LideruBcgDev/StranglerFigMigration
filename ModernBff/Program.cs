@@ -71,6 +71,27 @@ app.MapGet("/login", async context =>
     await context.Response.SendFileAsync(Path.Combine(app.Environment.WebRootPath, "login.html"));
 });
 
+// GET /legacy-drawings でレガシー図面 (DRW_TBL) 管理 Web 画面を返す
+app.MapGet("/legacy-drawings", async context =>
+{
+    context.Response.ContentType = "text/html; charset=utf-8";
+    await context.Response.SendFileAsync(Path.Combine(app.Environment.WebRootPath, "legacy-drawings.html"));
+});
+
+// GET /projects でモダン案件統合管理 (PRJ_TBL: 品目・図面関連付け) Web 画面を返す
+app.MapGet("/projects", async context =>
+{
+    context.Response.ContentType = "text/html; charset=utf-8";
+    await context.Response.SendFileAsync(Path.Combine(app.Environment.WebRootPath, "projects.html"));
+});
+
+// GET /workflows でモダンワークフロー管理 (申請 -> 照査 -> 承認) Web 画面を返す
+app.MapGet("/workflows", async context =>
+{
+    context.Response.ContentType = "text/html; charset=utf-8";
+    await context.Response.SendFileAsync(Path.Combine(app.Environment.WebRootPath, "workflows.html"));
+});
+
 app.MapControllers();
 
 app.Run();

@@ -89,3 +89,25 @@ sequenceDiagram
 2. **図面登録からの非同期ジョブ確認**
    * ブラウザの図面管理画面 (`/legacy-drawings`) または `POST /View/drawings` で図面を登録すると、即座に `QUEUED` としてジョブが生成されます。
    * `WinFormsClient` のコンボボックスに追加した **`/View/drawings/jobs?processNow=true`** を実行（または `ProcessorWorker` プロセスを稼働）すると、**[Step 1] `.tif` → `.thumb.png` 生成 → [Step 2] OCR 抽出 → [Step 3] Elasticsearch インデックス登録** の全ステップの実行ログと結果を確認できます。
+
+---
+
+## 5. 戻り値が必要なオンデマンド処理（図面表示時の承認スタンプ＋閲覧日時・ログインユーザ名透かし焼き込み）
+
+「閲覧日時」や「閲覧しているログインユーザ名（社外秘透かし）」、およびその時点の「承認情報（承認印・承認者・承認日）」を動的に焼き込んでブラウザに表示する場合、**別プロセス `ProcessorWorker` に戻り値を返す同期エンドポイント（名前付きパイプ / 内部 HTTP）** を持たせることで、IIS プロセスを画像合成負荷やクラッシュリスクから保護しつつリアルタイムに応答できます。
+
+### 実装構成
+1. **`ProcessorWorker` の同期エンドポイント ([ProcessorWorker/Program.cs](file:///e:/MyJobs/VisualStudio/web/ProcessorWorker/Program.cs))**
+   * **名前付きパイプ (Named Pipe)**: `\\.\pipe\StranglerProcessorWorker.StampPipe` ([`ProcessorWorkerNamedPipeServer`](file:///e:/MyJobs/VisualStudio/web/ProcessorWorker/Program.cs#L86-L157))
+     * 同一サーバ内の IIS (`ModernBff` / `LegacyMvc`) から TCP ポートを介さず高速にプロセス間通信（IPC）を行います。
+   * **内部 HTTP API**: `POST http://localhost:5055/internal/drawings/stamp`
+     * 別サーバやコンテナに `ProcessorWorker` を分離配置した場合でも HTTP RPC として呼び出し可能です。
+2. **スタンプ＆動的透かし焼き込みエンジン ([LegacyApprovalCommands.vb](file:///e:/MyJobs/VisualStudio/web/LegacyMvc.MDL/Commands/LegacyApprovalCommands.vb))**
+   * [`DrawingStampBurner.BurnStampOnDemand`](file:///e:/MyJobs/VisualStudio/web/LegacyMvc.MDL/Commands/LegacyApprovalCommands.vb#L343-L454):
+     * **承認スタンプ（電子印鑑）**: 承認ステータス（承認済/未承認）、承認部署、承認者名、承認日時を図面右上の検印欄に焼き込みます。
+     * **動的ウォーターマーク（透かし）**: `社外秘 / CONFIDENTIAL`、閲覧中のログインユーザ名・ID・所属部署、閲覧日時（ミリ秒単位）を図面中央に斜め透かしとして動的合成します。
+   * [`ProcessorWorkerStampClient.RequestOnDemandStampAsync`](file:///e:/MyJobs/VisualStudio/web/LegacyMvc.MDL/Commands/LegacyApprovalCommands.vb#L469-L535):
+     * `NamedPipe` → `InternalHttp` → `In-Process Fallback` の順で `ProcessorWorker` を呼び出し、[`DrawingStampResponse`](file:///e:/MyJobs/VisualStudio/web/LegacyMvc.PRM/ParameterModels.vb#L171-L186) を受け取ります。
+3. **Web / BFF 側エンドポイントと画面 ([ViewController.cs](file:///e:/MyJobs/VisualStudio/web/ModernBff/Controllers/ViewController.cs) / [legacy-drawings.html](file:///e:/MyJobs/VisualStudio/web/ModernBff/wwwroot/legacy-drawings.html))**
+   * `GET /View/drawings/stamp?drw_no=drw004&transport=AUTO&format=json|image`
+   * `/web/view/drawings?drw_no='drw004'` をブラウザで開くと、ログインユーザ情報（`IIdentity`）と現在時刻を付与して `ProcessorWorker` へ要求し、焼き込み済み図面を画面上に即座に表示します。

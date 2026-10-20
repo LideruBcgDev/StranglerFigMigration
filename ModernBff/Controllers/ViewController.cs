@@ -234,6 +234,76 @@ public class ViewController : ControllerBase
     }
 
     /// <summary>
+    /// GET /View/drawings/stamp?drw_no=drw004&amp;transport=AUTO&amp;format=json
+    /// 【図面表示時 オンデマンド承認スタンプ＋閲覧日時・ログインユーザ名（社外秘透かし）焼き込み API】
+    /// IIS (ModernBff) プロセス内で直接重い画像処理を行うのではなく、
+    /// 別プロセス ProcessorWorker の同期エンドポイント (Named Pipe / 内部 HTTP) を呼び出して
+    /// 「承認情報」＋「閲覧日時」＋「閲覧ログインユーザ名 (社外秘透かし)」をリアルタイムに焼き込んだ戻り値を受け取り、ブラウザへ返却します。
+    /// </summary>
+    [HttpGet("drawings/stamp")]
+    public async Task<IActionResult> GetStampedDrawingPreview(
+        [FromQuery(Name = "drw_no")] string? drwNo = null,
+        [FromQuery] string? drawingNo = null,
+        [FromQuery] string transport = "AUTO",
+        [FromQuery] string format = "json")
+    {
+        var viewParam = new IParamBase { CommandId = "CMD_VIEW_DRAWING_STAMP_PREVIEW" };
+        var (_, loginSource) = await PopulateViewIParamFromIIdentityAsync(viewParam);
+
+        string targetDrwNo = (!string.IsNullOrWhiteSpace(drwNo) ? drwNo : drawingNo) ?? "drw004";
+        targetDrwNo = targetDrwNo.Trim().Trim('\'', '"');
+        if (string.IsNullOrWhiteSpace(targetDrwNo))
+        {
+            targetDrwNo = "drw004";
+        }
+
+        DrawingRecord? drw = LegacyApprovalStore.GetDrawing(targetDrwNo);
+        var stampRequest = new DrawingStampRequest
+        {
+            DrawingNo = drw?.DrawingNo ?? targetDrwNo,
+            Title = drw?.Title ?? $"図面 ({targetDrwNo})",
+            Revision = drw?.Revision ?? "Rev.A",
+            ItmCd = drw?.ItmCd ?? "ITM-001",
+            BomNo = drw?.BomNo ?? "BOM-2026-001",
+            SourceTiffPath = drw?.SourceTiffFileName ?? $"{targetDrwNo}.tif",
+            ApprovalStatus = drw?.ApprovalStatus ?? "PENDING (未承認)",
+            ApprovedBy = drw?.ApprovedBy ?? string.Empty,
+            ApprovedOrg = drw?.ApprovedOrg ?? string.Empty,
+            ApprovedAtUtc = drw?.ApprovedAtUtc,
+            ViewerUserId = viewParam.LoginUser.UserId,
+            ViewerUserName = viewParam.LoginUser.UserName,
+            ViewerOrgName = viewParam.LoginUser.OrganizationName,
+            ViewedAtLocalText = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"),
+            ConfidentialLabel = "社外秘 / CONFIDENTIAL - DO NOT COPY",
+            PreferredTransport = transport
+        };
+
+        string? configuredHttpUrl = _configuration["ProcessorWorker:InternalHttpStampUrl"];
+        string? configuredPipeName = _configuration["ProcessorWorker:NamedPipeName"];
+
+        DrawingStampResponse stampedResult = await ProcessorWorkerStampClient.RequestOnDemandStampAsync(
+            stampRequest,
+            configuredHttpUrl,
+            configuredPipeName);
+
+        if (string.Equals(format, "image", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(format, "svg", StringComparison.OrdinalIgnoreCase))
+        {
+            return Content(stampedResult.StampedSvgMarkup, "image/svg+xml; charset=utf-8");
+        }
+
+        return Ok(new
+        {
+            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: View)",
+            Architecture = "Browser ---> IIS (ModernBff) ---[Sync RPC: NamedPipe / InternalHttp]---> ProcessorWorker.exe (On-Demand Stamp & Watermark Burner) ---> Return Stamped Image to Browser",
+            LoginUserLookupSource = loginSource,
+            CurrentViewer = viewParam.LoginUser,
+            StampRequest = stampRequest,
+            StampResponse = stampedResult
+        });
+    }
+
+    /// <summary>
     /// GET /View/projects?keyword=PRJ
     /// Web ブラウザからの案件統合管理 (PRJ_TBL: 品目・図面関連付け) 検索
     /// </summary>

@@ -138,6 +138,56 @@ Namespace Global.LegacyMvc.PRM
         Public Property ExecutionSteps As New List(Of String)()
     End Class
 
+    ''' <summary>
+    ''' 【図面表示時 オンデマンド・スタンプ焼き込み要求モデル】
+    ''' IIS (ModernBff / LegacyMvc) から別プロセス ProcessorWorker の同期エンドポイント
+    ''' (名前付きパイプ / 内部 HTTP / gRPC相当) へ送信されるリクエストです。
+    ''' 「承認情報」だけでなく、動的な「閲覧日時」「閲覧ログインユーザ名（社外秘透かし等）」を含みます。
+    ''' </summary>
+    Public Class DrawingStampRequest
+        Public Property DrawingNo As String = String.Empty
+        Public Property Title As String = String.Empty
+        Public Property Revision As String = "Rev.A"
+        Public Property ItmCd As String = String.Empty
+        Public Property BomNo As String = String.Empty
+        Public Property SourceTiffPath As String = String.Empty
+
+        ' --- 承認スタンプ情報 (オンデマンド焼き込み) ---
+        Public Property ApprovalStatus As String = "PENDING (未承認)"
+        Public Property ApprovedBy As String = String.Empty
+        Public Property ApprovedOrg As String = String.Empty
+        Public Property ApprovedAtUtc As DateTime?
+
+        ' --- 閲覧者・閲覧日時 動的透かし (Watermark) 情報 ---
+        Public Property ViewerUserId As String = String.Empty
+        Public Property ViewerUserName As String = String.Empty
+        Public Property ViewerOrgName As String = String.Empty
+        Public Property ViewedAtLocalText As String = String.Empty
+        Public Property ConfidentialLabel As String = "社外秘 / CONFIDENTIAL - DO NOT COPY"
+        Public Property PreferredTransport As String = "AUTO" ' "AUTO", "NamedPipe", "InternalHttp"
+    End Class
+
+    ''' <summary>
+    ''' 【図面表示時 オンデマンド・スタンプ焼き込み応答モデル (戻り値)】
+    ''' ProcessorWorker が元図面に承認スタンプ＋動的透かしを焼き込み、IIS プロセスへ同期返却するレスポンスです。
+    ''' </summary>
+    Public Class DrawingStampResponse
+        Public Property Success As Boolean = True
+        Public Property DrawingNo As String = String.Empty
+        Public Property Title As String = String.Empty
+        Public Property Revision As String = String.Empty
+        Public Property ContentType As String = "image/svg+xml"
+        Public Property StampedImageBase64 As String = String.Empty
+        Public Property StampedImageDataUrl As String = String.Empty
+        Public Property StampedSvgMarkup As String = String.Empty
+        Public Property ApprovalStampSummary As String = String.Empty
+        Public Property DynamicWatermarkSummary As String = String.Empty
+        Public Property TransportUsed As String = String.Empty
+        Public Property WorkerEndpoint As String = String.Empty
+        Public Property ProcessedByWorkerProcess As String = String.Empty
+        Public Property ProcessedAtUtc As DateTime = DateTime.UtcNow
+    End Class
+
     <Table("USR_TBL")>
     Public Class UsrTblEntity
         <Key>

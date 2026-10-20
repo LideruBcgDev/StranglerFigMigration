@@ -118,6 +118,26 @@
                 </thead>
                 <tbody id="drawingTableBody"></tbody>
             </table>
+
+            <!-- オンデマンド図面プレビュー (ProcessorWorker 同期エンドポイントによる承認印＋閲覧日時・ログインユーザ名透かし焼き込み) -->
+            <div style="margin-top: 20px; border-top: 2px solid #e2e8f0; padding-top: 14px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                    <h2 style="margin:0; border:none; padding:0;">図面オンデマンド表示 (ProcessorWorker スタンプ・動的透かし焼き込み)</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <select id="transportSelect" style="padding:5px 8px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px;">
+                            <option value="AUTO">通信方式: AUTO (NamedPipe優先 → InternalHttp)</option>
+                            <option value="NamedPipe">NamedPipe (\\.\pipe\StranglerProcessorWorker.StampPipe)</option>
+                            <option value="InternalHttp">InternalHttp (http://localhost:5055/internal/drawings/stamp)</option>
+                        </select>
+                        <button type="button" onclick="previewStampedDrawing(document.getElementById('searchKeyword').value || 'drw004')">再焼き込み表示</button>
+                    </div>
+                </div>
+                <div id="stampMetaInfo" style="font-size:12px; background:#f8fafc; border:1px solid #cbd5e1; border-radius:6px; padding:10px; margin-bottom:10px; line-height:1.6;">
+                    図面一覧の「図面表示(スタンプ焼込)」ボタンを押すか、DeepLink (<code>?drw_no='drw004'</code>) でアクセスすると、別プロセス <code>ProcessorWorker</code> が「承認情報」＋「閲覧日時」＋「閲覧ログインユーザ名（社外秘透かし）」をオンデマンドで焼き込んだ図面を返却します。
+                </div>
+                <div id="stampedSvgContainer" style="border:1px solid #94a3b8; border-radius:6px; background:#fff; padding:8px; min-height:220px; display:flex; align-items:center; justify-content:center;">
+                </div>
+            </div>
         </div>
     </div>
 
@@ -127,6 +147,25 @@
             const raw = params.get('drw_no') || params.get('drawingNo') || params.get('keyword') || '';
             // シングルクォートやダブルクォート ('drw004' -> drw004) を除去
             return raw.replace(/^['"]+|['"]+$/g, '').trim();
+        }
+
+        async function previewStampedDrawing(drawingNo) {
+            const cleanNo = (drawingNo || 'drw004').replace(/^['"]+|['"]+$/g, '').trim() || 'drw004';
+            const transport = document.getElementById('transportSelect').value || 'AUTO';
+            const res = await fetch(`/View/drawings/stamp?drw_no=${encodeURIComponent(cleanNo)}&transport=${encodeURIComponent(transport)}&format=json`);
+            const data = await res.json();
+            const sr = data.stampResponse || {};
+
+            document.getElementById('stampMetaInfo').innerHTML = `
+                <div><strong>対象図面:</strong> <code>${sr.drawingNo || cleanNo} (${sr.revision || ''})</code> - ${sr.title || ''}</div>
+                <div><strong>承認スタンプ (オンデマンド焼込):</strong> <span style="color:#b91c1c;font-weight:600;">${sr.approvalStampSummary || ''}</span></div>
+                <div><strong>動的透かし (閲覧日時・ログインユーザ):</strong> <span style="color:#1d4ed8;font-weight:600;">${sr.dynamicWatermarkSummary || ''}</span></div>
+                <div><strong>処理プロセス / 同期エンドポイント:</strong> <code>${sr.processedByWorkerProcess || ''}</code> | Transport: <code>${sr.transportUsed || ''}</code> (<code>${sr.workerEndpoint || ''}</code>)</div>
+            `;
+
+            if (sr.stampedSvgMarkup) {
+                document.getElementById('stampedSvgContainer').innerHTML = sr.stampedSvgMarkup;
+            }
         }
 
         async function loadDrawings() {
@@ -157,7 +196,8 @@
                     <td>${d.revision || 'Rev.A'}</td>
                     <td><span class="${badgeClass}">${d.approvalStatus}</span></td>
                     <td>${d.approvedBy || '-'}</td>
-                    <td>
+                    <td style="display:flex; gap:6px;">
+                        <button type="button" onclick="previewStampedDrawing('${d.drawingNo}')">図面表示(スタンプ焼込)</button>
                         <button type="button" class="secondary" onclick="applyDrawingWorkflow('${d.drawingNo}', '${d.title}')">図面WF申請</button>
                     </td>
                 `;
@@ -211,7 +251,7 @@
             window.location.href = "/web/view/drawings?drw_no='drw004'";
         }
 
-        // 初期表示時: URL に ?drw_no='drw004' が指定されていれば自動セットして該当図面を表示
+        // 初期表示時: URL に ?drw_no='drw004' が指定されていれば自動セットして該当図面を表示 & スタンプ焼き込みプレビューを実行
         (function init() {
             const initialDrwNo = getInitialDrwNoFromUrl();
             if (initialDrwNo) {
@@ -219,9 +259,10 @@
                 const banner = document.getElementById('deepLinkBanner');
                 const bannerText = document.getElementById('deepLinkBannerText');
                 banner.classList.add('active');
-                bannerText.innerHTML = `✓ 指定URL (<code>${window.location.pathname}${window.location.search}</code>) のパラメータ <strong>drw_no='${initialDrwNo}'</strong> に基づき図面を表示しています。`;
+                bannerText.innerHTML = `✓ 指定URL (<code>${window.location.pathname}${window.location.search}</code>) のパラメータ <strong>drw_no='${initialDrwNo}'</strong> に基づき図面とオンデマンド焼き込みプレビューを表示しています。`;
             }
             loadDrawings();
+            previewStampedDrawing(initialDrwNo || 'drw004');
         })();
     </script>
 </body>

@@ -5,8 +5,11 @@ Imports System.Data
 Imports System.Data.Common
 Imports System.Diagnostics
 Imports System.IO
+Imports System.IO.Pipes
 Imports System.Linq
+Imports System.Net.Http
 Imports System.Text
+Imports System.Threading.Tasks
 Imports LegacyMvc.PRM
 Imports Newtonsoft.Json
 
@@ -325,6 +328,222 @@ Namespace Commands
             Catch
             End Try
         End Sub
+    End Class
+
+    ''' <summary>
+    ''' 【別プロセス ProcessorWorker 上で実行されるオンデマンド図面スタンプ・動的透かし焼き込みエンジン】
+    ''' 表示リクエストのたびに以下の情報をリアルタイム合成して戻り値 (DrawingStampResponse) を生成します：
+    ''' 1. 承認情報 (承認ステータス・承認者印・承認部署・承認日時)
+    ''' 2. 動的ウォーターマーク (閲覧日時・閲覧しているログインユーザ名・所属部署・社外秘透かし)
+    ''' </summary>
+    Public NotInheritable Class DrawingStampBurner
+        Public Const DefaultNamedPipeName As String = "StranglerProcessorWorker.StampPipe"
+        Public Const DefaultInternalHttpUrl As String = "http://localhost:5055/internal/drawings/stamp"
+
+        Private Sub New()
+        End Sub
+
+        Public Shared Function BurnStampOnDemand(
+            req As DrawingStampRequest,
+            Optional workerProcessName As String = Nothing,
+            Optional transportUsed As String = "NamedPipe",
+            Optional endpointName As String = "\\.\pipe\StranglerProcessorWorker.StampPipe") As DrawingStampResponse
+
+            If req Is Nothing Then
+                req = New DrawingStampRequest()
+            End If
+
+            Dim drwNo As String = If(String.IsNullOrWhiteSpace(req.DrawingNo), "DRW-2026-01", req.DrawingNo.Trim())
+            Dim existing As DrawingRecord = LegacyApprovalStore.GetDrawing(drwNo)
+
+            Dim title As String = If(Not String.IsNullOrWhiteSpace(req.Title), req.Title, If(existing IsNot Nothing, existing.Title, "標準組立図面"))
+            Dim rev As String = If(Not String.IsNullOrWhiteSpace(req.Revision), req.Revision, If(existing IsNot Nothing, existing.Revision, "Rev.A"))
+            Dim itmCd As String = If(Not String.IsNullOrWhiteSpace(req.ItmCd), req.ItmCd, If(existing IsNot Nothing, existing.ItmCd, "ITM-001"))
+            Dim bomNo As String = If(Not String.IsNullOrWhiteSpace(req.BomNo), req.BomNo, If(existing IsNot Nothing, existing.BomNo, "BOM-2026-001"))
+            Dim appStatus As String = If(Not String.IsNullOrWhiteSpace(req.ApprovalStatus), req.ApprovalStatus, If(existing IsNot Nothing, existing.ApprovalStatus, "PENDING (未承認)"))
+            Dim appBy As String = If(Not String.IsNullOrWhiteSpace(req.ApprovedBy), req.ApprovedBy, If(existing IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(existing.ApprovedBy), existing.ApprovedBy, "未承認"))
+            Dim appOrg As String = If(Not String.IsNullOrWhiteSpace(req.ApprovedOrg), req.ApprovedOrg, If(existing IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(existing.ApprovedOrg), existing.ApprovedOrg, "-"))
+            Dim appDate As String = If(req.ApprovedAtUtc.HasValue, req.ApprovedAtUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm"),
+                                       If(existing IsNot Nothing AndAlso existing.ApprovedAtUtc.HasValue, existing.ApprovedAtUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm"), "-"))
+
+            Dim viewerId As String = If(String.IsNullOrWhiteSpace(req.ViewerUserId), "anonymous", req.ViewerUserId)
+            Dim viewerName As String = If(String.IsNullOrWhiteSpace(req.ViewerUserName), viewerId, req.ViewerUserName)
+            Dim viewerOrg As String = If(String.IsNullOrWhiteSpace(req.ViewerOrgName), "技術開発部", req.ViewerOrgName)
+            Dim viewedAt As String = If(String.IsNullOrWhiteSpace(req.ViewedAtLocalText), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), req.ViewedAtLocalText)
+            Dim confidential As String = If(String.IsNullOrWhiteSpace(req.ConfidentialLabel), "社外秘 / CONFIDENTIAL - DO NOT COPY", req.ConfidentialLabel)
+
+            Dim isApproved As Boolean = appStatus.ToUpperInvariant().Contains("APPROVED")
+            Dim stampColor As String = If(isApproved, "#dc2626", "#d97706")
+            Dim stampHeader As String = If(isApproved, "承認済", "審査中/未承認")
+
+            Dim procInfo As String = If(Not String.IsNullOrWhiteSpace(workerProcessName),
+                workerProcessName,
+                $"ProcessorWorker.exe (PID={Process.GetCurrentProcess().Id})")
+
+            Dim approvalSummary As String = $"[{stampHeader}] ステータス:{appStatus} | 承認者:{appBy} ({appOrg}) | 承認日時:{appDate}"
+            Dim watermarkSummary As String = $"[{confidential}] 閲覧ユーザ:{viewerName} ({viewerId} / {viewerOrg}) | 閲覧日時:{viewedAt}"
+
+            ' SVG で CAD 図面枠 + 表題欄 + 承認印(赤ハンコ) + 斜め社外秘・閲覧者・閲覧日時透かし を動的合成
+            Dim svg As New StringBuilder()
+            svg.AppendLine("<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 900 540"" width=""100%"" height=""100%"">")
+            svg.AppendLine("  <rect width=""900"" height=""540"" fill=""#f8fafc"" stroke=""#0f172a"" stroke-width=""4""/>")
+            svg.AppendLine("  <rect x=""16"" y=""16"" width=""868"" height=""508"" fill=""#ffffff"" stroke=""#334155"" stroke-width=""2""/>")
+            svg.AppendLine("  <!-- CAD グリッドと図面モック線画 -->")
+            svg.AppendLine("  <g stroke=""#e2e8f0"" stroke-width=""1"">")
+            svg.AppendLine("    <line x1=""16"" y1=""140"" x2=""884"" y2=""140""/>")
+            svg.AppendLine("    <line x1=""16"" y1=""270"" x2=""884"" y2=""270""/>")
+            svg.AppendLine("    <line x1=""16"" y1=""400"" x2=""884"" y2=""400""/>")
+            svg.AppendLine("    <line x1=""220"" y1=""16"" x2=""220"" y2=""524""/>")
+            svg.AppendLine("    <line x1=""450"" y1=""16"" x2=""450"" y2=""524""/>")
+            svg.AppendLine("    <line x1=""680"" y1=""16"" x2=""680"" y2=""524""/>")
+            svg.AppendLine("  </g>")
+            svg.AppendLine("  <!-- CAD 機械・回路図形 -->")
+            svg.AppendLine("  <g stroke=""#1e3a8a"" stroke-width=""2"" fill=""none"">")
+            svg.AppendLine("    <rect x=""90"" y=""85"" width=""380"" height=""230"" rx=""6""/>")
+            svg.AppendLine("    <circle cx=""280"" cy=""200"" r=""72""/>")
+            svg.AppendLine("    <circle cx=""280"" cy=""200"" r=""28"" stroke-dasharray=""5,4""/>")
+            svg.AppendLine("    <line x1=""70"" y1=""200"" x2=""490"" y2=""200"" stroke=""#0284c7"" stroke-dasharray=""10,4,2,4""/>")
+            svg.AppendLine("    <line x1=""280"" y1=""65"" x2=""280"" y2=""335"" stroke=""#0284c7"" stroke-dasharray=""10,4,2,4""/>")
+            svg.AppendLine($"    <text x=""95"" y=""74"" fill=""#1e3a8a"" font-size=""13"" font-family=""Meiryo, sans-serif"" font-weight=""bold"">DRAWING: {EscapeXml(drwNo)} ({EscapeXml(rev)}) - {EscapeXml(title)}</text>")
+            svg.AppendLine($"    <text x=""95"" y=""342"" fill=""#475569"" font-size=""12"" font-family=""Meiryo, sans-serif"">対象品目: {EscapeXml(itmCd)}  |  関連BOM: {EscapeXml(bomNo)}  |  材質: SUS304  |  尺度: 1:1</text>")
+            svg.AppendLine("  </g>")
+
+            ' 右上: 承認スタンプ (電子印鑑・検印欄) オンデマンド焼き込み
+            svg.AppendLine("  <!-- オンデマンド焼き込み1: 承認スタンプ (電子印鑑) -->")
+            svg.AppendLine($"  <g transform=""translate(635, 36)"">")
+            svg.AppendLine($"    <rect x=""0"" y=""0"" width=""225"" height=""125"" rx=""8"" fill=""#fffbfa"" stroke=""{stampColor}"" stroke-width=""3""/>")
+            svg.AppendLine($"    <line x1=""0"" y1=""32"" x2=""225"" y2=""32"" stroke=""{stampColor}"" stroke-width=""2""/>")
+            svg.AppendLine($"    <line x1=""0"" y1=""88"" x2=""225"" y2=""88"" stroke=""{stampColor}"" stroke-width=""1.5""/>")
+            svg.AppendLine($"    <text x=""112"" y=""22"" text-anchor=""middle"" fill=""{stampColor}"" font-size=""14"" font-weight=""bold"" font-family=""Meiryo, sans-serif"">【電子承認印: {EscapeXml(stampHeader)}】</text>")
+            svg.AppendLine($"    <text x=""112"" y=""55"" text-anchor=""middle"" fill=""{stampColor}"" font-size=""12"" font-weight=""bold"" font-family=""Meiryo, sans-serif"">承認部署: {EscapeXml(appOrg)}</text>")
+            svg.AppendLine($"    <text x=""112"" y=""76"" text-anchor=""middle"" fill=""{stampColor}"" font-size=""13"" font-weight=""bold"" font-family=""Meiryo, sans-serif"">承認者: {EscapeXml(appBy)}</text>")
+            svg.AppendLine($"    <text x=""112"" y=""110"" text-anchor=""middle"" fill=""{stampColor}"" font-size=""11"" font-family=""Meiryo, sans-serif"">承認日時: {EscapeXml(appDate)}</text>")
+            svg.AppendLine("  </g>")
+
+            ' 中央斜め: 動的ウォーターマーク (社外秘 + 閲覧ログインユーザ名 + 閲覧日時)
+            svg.AppendLine("  <!-- オンデマンド焼き込み2: 閲覧日時・閲覧ログインユーザ名・社外秘透かし (Dynamic Watermark) -->")
+            svg.AppendLine("  <g transform=""translate(450, 255) rotate(-22)"" opacity=""0.28"">")
+            svg.AppendLine("    <rect x=""-370"" y=""-68"" width=""740"" height=""136"" rx=""10"" fill=""none"" stroke=""#dc2626"" stroke-width=""3"" stroke-dasharray=""10,6""/>")
+            svg.AppendLine($"    <text x=""0"" y=""-24"" text-anchor=""middle"" fill=""#dc2626"" font-size=""26"" font-weight=""bold"" font-family=""Meiryo, sans-serif"">{EscapeXml(confidential)}</text>")
+            svg.AppendLine($"    <text x=""0"" y=""14"" text-anchor=""middle"" fill=""#b91c1c"" font-size=""19"" font-weight=""bold"" font-family=""Meiryo, sans-serif"">閲覧者: {EscapeXml(viewerName)} ({EscapeXml(viewerId)}) [{EscapeXml(viewerOrg)}]</text>")
+            svg.AppendLine($"    <text x=""0"" y=""46"" text-anchor=""middle"" fill=""#991b1b"" font-size=""17"" font-weight=""bold"" font-family=""Meiryo, sans-serif"">閲覧日時: {EscapeXml(viewedAt)}  |  図面番号: {EscapeXml(drwNo)} ({EscapeXml(rev)})</text>")
+            svg.AppendLine("  </g>")
+
+            ' 右下: CAD 表題欄 (Title Block) & ProcessorWorker 焼き込み証明
+            svg.AppendLine("  <!-- 右下: CAD 表題欄 -->")
+            svg.AppendLine("  <g transform=""translate(350, 395)"">")
+            svg.AppendLine("    <rect x=""0"" y=""0"" width=""518"" height=""114"" fill=""#f1f5f9"" stroke=""#1e293b"" stroke-width=""2""/>")
+            svg.AppendLine("    <line x1=""0"" y1=""36"" x2=""518"" y2=""36"" stroke=""#334155"" stroke-width=""1""/>")
+            svg.AppendLine("    <line x1=""0"" y1=""74"" x2=""518"" y2=""74"" stroke=""#334155"" stroke-width=""1""/>")
+            svg.AppendLine($"    <text x=""12"" y=""23"" fill=""#0f172a"" font-size=""13"" font-weight=""bold"" font-family=""Meiryo, sans-serif"">図面番号: {EscapeXml(drwNo)} ({EscapeXml(rev)})  |  名称: {EscapeXml(title)}</text>")
+            svg.AppendLine($"    <text x=""12"" y=""59"" fill=""#1e293b"" font-size=""12"" font-family=""Meiryo, sans-serif"">承認状態: {EscapeXml(appStatus)}  |  承認者: {EscapeXml(appBy)}  |  閲覧者: {EscapeXml(viewerName)} ({EscapeXml(viewerId)})</text>")
+            svg.AppendLine($"    <text x=""12"" y=""97"" fill=""#0369a1"" font-size=""11"" font-weight=""bold"" font-family=""Meiryo, sans-serif"">焼き込み実行: {EscapeXml(procInfo)} via {EscapeXml(transportUsed)} ({EscapeXml(viewedAt)})</text>")
+            svg.AppendLine("  </g>")
+            svg.AppendLine("</svg>")
+
+            Dim svgText As String = svg.ToString()
+            Dim base64 As String = Convert.ToBase64String(Encoding.UTF8.GetBytes(svgText))
+
+            Return New DrawingStampResponse With {
+                .Success = True,
+                .DrawingNo = drwNo,
+                .Title = title,
+                .Revision = rev,
+                .ContentType = "image/svg+xml",
+                .StampedSvgMarkup = svgText,
+                .StampedImageBase64 = base64,
+                .StampedImageDataUrl = $"data:image/svg+xml;base64,{base64}",
+                .ApprovalStampSummary = approvalSummary,
+                .DynamicWatermarkSummary = watermarkSummary,
+                .TransportUsed = transportUsed,
+                .WorkerEndpoint = endpointName,
+                .ProcessedByWorkerProcess = procInfo,
+                .ProcessedAtUtc = DateTime.UtcNow
+            }
+        End Function
+
+        Private Shared Function EscapeXml(input As String) As String
+            If String.IsNullOrEmpty(input) Then Return String.Empty
+            Return input.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("""", "&quot;").Replace("'", "&apos;")
+        End Function
+    End Class
+
+    ''' <summary>
+    ''' 【IIS (ModernBff / LegacyMvc) から別プロセス ProcessorWorker の同期エンドポイントを呼び出すクライアント】
+    ''' 1. 名前付きパイプ (Named Pipe: \\.\pipe\StranglerProcessorWorker.StampPipe) でのプロセス間高速 RPC 通信
+    ''' 2. 内部 HTTP エンドポイント (POST http://localhost:5055/internal/drawings/stamp) での同期呼び出し
+    ''' 3. 開発環境で ProcessorWorker.exe が未起動の場合でも動作を確認できる自動フォールバック機能付き
+    ''' </summary>
+    Public NotInheritable Class ProcessorWorkerStampClient
+        Private Shared ReadOnly SharedHttpClient As New HttpClient() With {
+            .Timeout = TimeSpan.FromMilliseconds(1500)
+        }
+
+        Private Sub New()
+        End Sub
+
+        Public Shared Async Function RequestOnDemandStampAsync(
+            req As DrawingStampRequest,
+            Optional internalHttpUrl As String = Nothing,
+            Optional namedPipeName As String = Nothing) As Task(Of DrawingStampResponse)
+
+            Dim pipeName As String = If(String.IsNullOrWhiteSpace(namedPipeName), DrawingStampBurner.DefaultNamedPipeName, namedPipeName)
+            Dim httpUrl As String = If(String.IsNullOrWhiteSpace(internalHttpUrl), DrawingStampBurner.DefaultInternalHttpUrl, internalHttpUrl)
+            Dim pref As String = If(String.IsNullOrWhiteSpace(req.PreferredTransport), "AUTO", req.PreferredTransport.Trim().ToUpperInvariant())
+
+            ' 1. 名前付きパイプ (Named Pipe) で別プロセス ProcessorWorker へ同期リクエスト
+            If pref = "AUTO" OrElse pref = "NAMEDPIPE" OrElse pref = "PIPE" Then
+                Try
+                    Using pipeClient As New NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous)
+                        Await pipeClient.ConnectAsync(350).ConfigureAwait(False)
+                        Dim utf8NoBom As New UTF8Encoding(False)
+                        Using writer As New StreamWriter(pipeClient, utf8NoBom, 4096, leaveOpen:=True)
+                            writer.AutoFlush = True
+                            Dim requestJson As String = JsonConvert.SerializeObject(req)
+                            Await writer.WriteLineAsync(requestJson).ConfigureAwait(False)
+                        End Using
+                        Using reader As New StreamReader(pipeClient, utf8NoBom, False, 4096, leaveOpen:=True)
+                            Dim responseJson As String = Await reader.ReadLineAsync().ConfigureAwait(False)
+                            If Not String.IsNullOrWhiteSpace(responseJson) Then
+                                Dim pipeResp As DrawingStampResponse = JsonConvert.DeserializeObject(Of DrawingStampResponse)(responseJson)
+                                If pipeResp IsNot Nothing Then
+                                    Return pipeResp
+                                End If
+                            End If
+                        End Using
+                    End Using
+                Catch
+                    ' NamedPipe 未起動時は InternalHttp または Fallback へ遷移
+                End Try
+            End If
+
+            ' 2. 内部 HTTP (POST http://localhost:5055/internal/drawings/stamp) で別プロセス ProcessorWorker へ同期リクエスト
+            If pref = "AUTO" OrElse pref = "INTERNALHTTP" OrElse pref = "HTTP" Then
+                Try
+                    Dim jsonBody As String = JsonConvert.SerializeObject(req)
+                    Using content As New StringContent(jsonBody, Encoding.UTF8, "application/json")
+                        Using httpResp As HttpResponseMessage = Await SharedHttpClient.PostAsync(httpUrl, content).ConfigureAwait(False)
+                            If httpResp.IsSuccessStatusCode Then
+                                Dim respText As String = Await httpResp.Content.ReadAsStringAsync().ConfigureAwait(False)
+                                Dim parsed As DrawingStampResponse = JsonConvert.DeserializeObject(Of DrawingStampResponse)(respText)
+                                If parsed IsNot Nothing Then
+                                    Return parsed
+                                End If
+                            End If
+                        End Using
+                    End Using
+                Catch
+                    ' InternalHttp 未起動時は Fallback へ遷移
+                End Try
+            End If
+
+            ' 3. 開発環境で ProcessorWorker.exe が別起動されていない場合でも同じエンジンで焼き込み結果を返却
+            Return DrawingStampBurner.BurnStampOnDemand(
+                req,
+                workerProcessName:="ProcessorWorker (In-Process Simulation / Ready for Out-of-Process Pipe & HTTP)",
+                transportUsed:="NamedPipe/InternalHttp (Fallback Simulation)",
+                endpointName:=$"\\.\pipe\{pipeName} | {httpUrl}")
+        End Function
     End Class
 
     ''' <summary>

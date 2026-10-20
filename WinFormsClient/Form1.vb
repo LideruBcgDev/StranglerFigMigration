@@ -203,6 +203,7 @@ Public Class Form1
             "/Client/execute?commandName=ITM.APP",
             "/Client/execute?commandName=PRJ.SCH",
             "/Client/execute?commandName=WF.APR",
+            "/View/drawings/jobs?processNow=true",
             "/Client/commands",
             "/View/execute?commandName=ITM.APP",
             "/View/execute?commandName=PRJ.SCH",

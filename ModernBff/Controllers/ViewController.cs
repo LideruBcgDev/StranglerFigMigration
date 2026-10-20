@@ -202,8 +202,34 @@ public class ViewController : ControllerBase
             ResponseType = cmd.ResponseType,
             IParam = cmd.IParam,
             OParam = cmd.OParam,
-            Message = $"[ViewController -> ICommand] 図面 '{cmd.TypedOParam.SavedDrawing.DrawingNo} ({cmd.TypedOParam.SavedDrawing.Title})' を DRW_TBL に登録・更新しました。",
+            Message = $"[ViewController -> ICommand] 図面 '{cmd.TypedOParam.SavedDrawing.DrawingNo} ({cmd.TypedOParam.SavedDrawing.Title})' を DRW_TBL に登録し、別プロセス Worker キュー (JobId={cmd.TypedOParam.SavedDrawing.LastBackgroundJobId}) に [TIFF->PNG生成 / OCR / Elasticsearch登録] ジョブを投入しました。",
             SavedDrawing = cmd.TypedOParam.SavedDrawing
+        });
+    }
+
+    /// <summary>
+    /// GET /View/drawings/jobs?processNow=true
+    /// 図面登録時にキューに積まれた非同期ジョブ（TIFF->サムネイルPNG生成、OCR解析、Elasticsearch登録）の状態を確認します。
+    /// processNow=true の場合は、別プロセス Worker (DrawingProcessorWorker) の処理を即時トリガーして結果を返します。
+    /// </summary>
+    [HttpGet("drawings/jobs")]
+    [HttpPost("drawings/jobs")]
+    public IActionResult GetDrawingBackgroundJobs([FromQuery] bool processNow = false)
+    {
+        List<DrawingBackgroundJobRecord> newlyProcessed = new();
+        if (processNow)
+        {
+            newlyProcessed = DrawingOutboxQueueStore.ProcessPendingJobs("DrawingProcessorWorker.exe (Out-of-Process Worker Simulation)");
+        }
+
+        var allJobs = DrawingOutboxQueueStore.GetAllJobs();
+        return Ok(new
+        {
+            Architecture = "Web/IIS (Producer: Enqueue Only) ---> Persistent Outbox Queue ---> DrawingProcessorWorker.exe (Consumer: Windows Service / Separate Process)",
+            QueueDirectory = DrawingOutboxQueueStore.QueueDirectory,
+            NewlyProcessedCount = newlyProcessed.Count,
+            TotalJobCount = allJobs.Count,
+            Jobs = allJobs
         });
     }
 

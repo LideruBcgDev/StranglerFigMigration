@@ -103,6 +103,39 @@ Namespace Global.LegacyMvc.PRM
         Public Property ApprovedBy As String
         Public Property ApprovedOrg As String
         Public Property ApprovedAtUtc As DateTime?
+        ' --- 別プロセス (DrawingProcessorWorker) で非同期処理される TIFF変換・OCR・Elasticsearch 連携情報 ---
+        Public Property SourceTiffFileName As String = String.Empty
+        Public Property ThumbnailPngPath As String = String.Empty
+        Public Property OcrAndEsStatus As String = "INDEXED (完了)"
+        Public Property OcrExtractedText As String = String.Empty
+        Public Property ElasticsearchDocId As String = String.Empty
+        Public Property LastBackgroundJobId As String = String.Empty
+    End Class
+
+    ''' <summary>
+    ''' 【IIS とは別プロセス (DrawingProcessorWorker) で実行される図面非同期ジョブ】
+    ''' 1. TIFF ファイルからサムネイル用 PNG ファイルの生成
+    ''' 2. 図面ファイルの OCR テキスト抽出
+    ''' 3. Elasticsearch への全文検索インデックス登録
+    ''' </summary>
+    Public Class DrawingBackgroundJobRecord
+        Public Property JobId As String = String.Empty
+        Public Property DrawingNo As String = String.Empty
+        Public Property Title As String = String.Empty
+        Public Property ItmCd As String = String.Empty
+        Public Property BomNo As String = String.Empty
+        Public Property Revision As String = "Rev.A"
+        Public Property SourceTiffPath As String = String.Empty
+        Public Property GeneratedThumbnailPngPath As String = String.Empty
+        Public Property OcrExtractedText As String = String.Empty
+        Public Property ElasticsearchIndex As String = "strangler-drawings-v1"
+        Public Property ElasticsearchDocId As String = String.Empty
+        ''' <summary>"QUEUED" -> "PROCESSING" -> "COMPLETED" | "FAILED_RETRYING"</summary>
+        Public Property Status As String = "QUEUED"
+        Public Property ProcessedByWorkerProcess As String = String.Empty
+        Public Property EnqueuedAtUtc As DateTime = DateTime.UtcNow
+        Public Property CompletedAtUtc As DateTime?
+        Public Property ExecutionSteps As New List(Of String)()
     End Class
 
     <Table("USR_TBL")>

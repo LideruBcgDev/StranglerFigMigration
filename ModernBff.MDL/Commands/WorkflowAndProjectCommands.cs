@@ -506,7 +506,7 @@ public class WorkflowCompleteCommand
 // WinFormsClient からは DirectCast(result, ProjectSearchOParam) のように型安全に利用できます。
 // ====================================================================================
 
-[CommandDefinition("PRJ.SCH", Db = 1, Description = "案件統合検索コマンド (ModernBff.MDL.Commands.ProjectSearchCommand)")]
+[CommandDefinition(CommandNames.PrjSch, Db = 1, Description = "案件統合検索コマンド (ModernBff.MDL.Commands.ProjectSearchCommand)")]
 public class ProjectSearchCommand : CommandBase<ProjectSearchIParam, ProjectSearchOParam>
 {
     public ProjectSearchCommand() : base(null!)
@@ -573,7 +573,7 @@ public class ProjectSearchCommand : CommandBase<ProjectSearchIParam, ProjectSear
     }
 }
 
-[CommandDefinition("PRJ.SAV", Db = 1, Description = "案件統合登録・更新コマンド (ModernBff.MDL.Commands.ProjectSaveCommand)")]
+[CommandDefinition(CommandNames.PrjSav, Db = 1, Description = "案件統合登録・更新コマンド (ModernBff.MDL.Commands.ProjectSaveCommand)")]
 public class ProjectSaveCommand : CommandBase<ProjectSaveIParam, ProjectSaveOParam>
 {
     public ProjectSaveCommand() : base(null!)
@@ -598,7 +598,7 @@ public class ProjectSaveCommand : CommandBase<ProjectSaveIParam, ProjectSaveOPar
     }
 }
 
-[CommandDefinition("WF.APP", Db = 1, Description = "ワークフロー申請コマンド (ModernBff.MDL.Commands.WorkflowApplyCommand)")]
+[CommandDefinition(CommandNames.WfApp, Db = 1, Description = "ワークフロー申請コマンド (ModernBff.MDL.Commands.WorkflowApplyCommand)")]
 public class WorkflowApplyCommand : CommandBase<WorkflowApplyIParam, WorkflowApplyOParam>
 {
     public WorkflowApplyCommand() : base(null!)
@@ -629,7 +629,7 @@ public class WorkflowApplyCommand : CommandBase<WorkflowApplyIParam, WorkflowApp
     }
 }
 
-[CommandDefinition("WF.VRF", Db = 1, Description = "ワークフロー照査コマンド (ModernBff.MDL.Commands.WorkflowVerifyCommand)")]
+[CommandDefinition(CommandNames.WfVrf, Db = 1, Description = "ワークフロー照査コマンド (ModernBff.MDL.Commands.WorkflowVerifyCommand)")]
 public class WorkflowVerifyCommand : CommandBase<WorkflowVerifyIParam, WorkflowVerifyOParam>
 {
     public WorkflowVerifyCommand() : base(null!)
@@ -658,7 +658,7 @@ public class WorkflowVerifyCommand : CommandBase<WorkflowVerifyIParam, WorkflowV
     }
 }
 
-[CommandDefinition("WF.APR", Db = 1, Description = "ワークフロー最終承認コマンド (ModernBff.MDL.Commands.WorkflowApproveCommand)")]
+[CommandDefinition(CommandNames.WfApr, Db = 1, Description = "ワークフロー最終承認コマンド (ModernBff.MDL.Commands.WorkflowApproveCommand)")]
 public class WorkflowApproveCommand : CommandBase<WorkflowApproveIParam, WorkflowApproveOParam>
 {
     public WorkflowApproveCommand() : base(null!)

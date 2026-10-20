@@ -273,3 +273,24 @@ public class WorkflowApproveOParam : OParamBase
     public BomRecord? LegacyBom { get; set; }
     public List<DrawingRecord> LegacyDrawings { get; set; } = new();
 }
+
+// ====================================================================================
+// 【モダン側コマンド型付きカタログ (ModernBff.PRM.ModernCommands)】
+// コマンド名定数 (CommandNames.XXX) が決まれば IParam 型と OParam 型が一意に決まるため、
+// ここで CommandSpec<TIParam, TOParam> として一元定義します。
+// ・ModernCommands.PrjSch.CreateIParam() で new ProjectSearchIParam() を手書きせずに生成可能
+// ・HttpUtil.ExecuteCommandAsync(ModernCommands.PrjSch, p => ...) で型変換ミスを100%防止可能
+// ====================================================================================
+public static class ModernCommands
+{
+    public static readonly CommandSpec<ProjectSearchIParam, ProjectSearchOParam> PrjSch = new(CommandNames.PrjSch);
+    public static readonly CommandSpec<ProjectSaveIParam, ProjectSaveOParam> PrjSav = new(CommandNames.PrjSav);
+    public static readonly CommandSpec<WorkflowApplyIParam, WorkflowApplyOParam> WfApp = new(CommandNames.WfApp);
+    public static readonly CommandSpec<WorkflowVerifyIParam, WorkflowVerifyOParam> WfVrf = new(CommandNames.WfVrf);
+    public static readonly CommandSpec<WorkflowApproveIParam, WorkflowApproveOParam> WfApr = new(CommandNames.WfApr);
+
+    public static void EnsureRegistered()
+    {
+        _ = PrjSch.Name;
+    }
+}

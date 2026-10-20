@@ -157,15 +157,55 @@ Namespace Global.Common.APP
         End Function
 
         ''' <summary>
-        ''' コマンド名 (例: "ITM.APP", "ITM.SCH", "ITM.SAV", "DRW.SCH") と IParam を指定して
+        ''' 【推奨1：型安全な CommandSpec + ラムダ式によるコマンド実行】
+        ''' 各画面で New ItemAppIParam() や DirectCast(..., ItemAppOParam) を手書きする必要がなく、
+        ''' コマンド定義 (例: LegacyCommands.ItmApp / ModernCommands.PrjSch) を指定するだけで
+        ''' 正しい IParam の自動生成と OParam 型での返却がコンパイル時に100%保証されます。
+        ''' </summary>
+        Public Async Function ExecuteCommandAsync(Of TIParam As {Class, New}, TOParam As Class)(
+            spec As CommandSpec(Of TIParam, TOParam),
+            Optional configureIParam As Action(Of TIParam) = Nothing,
+            Optional endpointPath As String = "Client/execute") As Task(Of TOParam)
+
+            If spec Is Nothing Then Throw New ArgumentNullException(NameOf(spec))
+            Dim iParam As TIParam = spec.CreateIParam(configureIParam)
+            Dim rawOParam As Object = Await ExecuteCommandAsync(spec.Name, CObj(iParam), endpointPath)
+            Return DirectCast(rawOParam, TOParam)
+        End Function
+
+        ''' <summary>
+        ''' 【推奨2：型安全な CommandSpec + 生成済み TIParam によるコマンド実行】
+        ''' spec.CreateIParam() で生成した IParam を渡し、型変換ミスなく TOParam を取得します。
+        ''' </summary>
+        Public Async Function ExecuteCommandAsync(Of TIParam As {Class, New}, TOParam As Class)(
+            spec As CommandSpec(Of TIParam, TOParam),
+            iParam As TIParam,
+            Optional endpointPath As String = "Client/execute") As Task(Of TOParam)
+
+            If spec Is Nothing Then Throw New ArgumentNullException(NameOf(spec))
+            Dim effectiveIParam As TIParam = If(iParam, spec.CreateIParam())
+            Dim rawOParam As Object = Await ExecuteCommandAsync(spec.Name, CObj(effectiveIParam), endpointPath)
+            Return DirectCast(rawOParam, TOParam)
+        End Function
+
+        ''' <summary>
+        ''' コマンド名定数 (例: CommandNames.ItmApp, CommandNames.ItmSch) と IParam を指定して
         ''' ClientController (/Client/execute) または ViewController (/View/execute) を呼び出し、
-        ''' 返却された OParam インスタンスを LegacyMvc.PRM の具体型として復元して返します。
-        ''' 呼び出し側 (WinFormsClient) では戻り値を DirectCast(result, ItemAppOParam) のように直接キャスト可能です。
+        ''' 返却された OParam インスタンスを LegacyMvc.PRM / ModernBff.PRM の具体型として復元して返します。
+        ''' 送信前に CommandParamRegistry.ValidateIParamType で IParam の型不一致も自動チェックします。
         ''' </summary>
         Public Async Function ExecuteCommandAsync(
             commandName As String,
             iParam As Object,
             Optional endpointPath As String = "Client/execute") As Task(Of Object)
+
+            ' コマンド名に対して IParam が未指定の場合は CommandParamRegistry から自動生成
+            If iParam Is Nothing AndAlso CommandParamRegistry.GetIParamType(commandName) IsNot Nothing Then
+                iParam = CommandParamRegistry.CreateIParam(commandName)
+            End If
+
+            ' 送信前に「コマンド名」と「渡された IParam の型」が一致しているか検証 (型間違い防止)
+            CommandParamRegistry.ValidateIParamType(commandName, iParam)
 
             ' IParam に LoginUser プロパティがあり、未設定の場合は現在ログイン中の LoginUser を自動設定
             If iParam IsNot Nothing AndAlso _currentLoginUser IsNot Nothing Then
@@ -195,8 +235,14 @@ Namespace Global.Common.APP
                 Throw New InvalidOperationException($"コマンド '{commandName}' の応答に OParam が含まれていません。Response: {rawJson}")
             End If
 
-            Dim typeName As String = If(oParamTypeToken IsNot Nothing, oParamTypeToken.ToString(), String.Empty)
-            Dim targetType As Type = ResolvePrmType(typeName)
+            ' 1. まず CommandParamRegistry に登録された OParam 型を優先解決 (コマンド名から OParam 型が一意に決まるため確実)
+            Dim targetType As Type = CommandParamRegistry.GetOParamType(commandName)
+
+            ' 2. 未登録の場合はレスポンス内の oParamType 文字列から解決
+            If targetType Is Nothing Then
+                Dim typeName As String = If(oParamTypeToken IsNot Nothing, oParamTypeToken.ToString(), String.Empty)
+                targetType = ResolvePrmType(typeName)
+            End If
 
             If targetType IsNot Nothing Then
                 Return oParamToken.ToObject(targetType)

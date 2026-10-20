@@ -178,19 +178,26 @@ flowchart BT
     ModernBff --> ModernMDL
 ```
 
-### `WinFormsClient` での `DirectCast` コード例 ([`Form1.vb`](file:///e:/MyJobs/VisualStudio/web/WinFormsClient/Form1.vb#L268-L283))
-```vb
-Dim iParam As New ItemAppIParam() With {
-    .CommandId = "ITM.APP",
-    .TargetItmCd = "ITM-001",
-    .TargetBomNo = "BOM-2026-001",
-    .TargetDrawingNo = "drw004",
-    .ActionMode = "QUERY_AND_APPROVE"
-}
+### `WinFormsClient` での型安全なコマンド呼び出し（`CommandNames` 定数 & `CommandSpec(Of TIParam, TOParam)`）
 
-' Common.APP.StranglerHttpClientUtility で "ITM.APP" を送信し、
-' 返却された OParam を LegacyMvc.PRM.ItemAppOParam に DirectCast (Option Strict On 対応)
-Dim rawOParam As Object = Await HttpUtil.ExecuteCommandAsync("ITM.APP", iParam, "Client/execute")
-Dim oParam As ItemAppOParam = DirectCast(rawOParam, ItemAppOParam)
+1. **コマンド名定数の一元管理 ([`Common.APP/CommandNames.vb`](file:///e:/MyJobs/VisualStudio/web/Common.APP/CommandNames.vb#L13-L51))**
+   * `CommandNames.ItmApp` (`"ITM.APP"`), `CommandNames.ItmSch` (`"ITM.SCH"`), `CommandNames.PrjSch` (`"PRJ.SCH"`) などの `Public Const` 定数を `Common.APP` に定義し、サーバー側の `<CommandDefinition(CommandNames.ItmApp, Db:=1)>` とクライアント側の呼び出しの双方で同じ定数を参照します。
+2. **`Name` から `IParam` / `OParam` の型を一意に決定する仕組み ([`CommandSpec(Of TIParam, TOParam)`](file:///e:/MyJobs/VisualStudio/web/Common.APP/CommandNames.vb#L155-L185) / [`CommandParamRegistry`](file:///e:/MyJobs/VisualStudio/web/Common.APP/CommandNames.vb#L74-L153))**
+   * [`LegacyCommands`](file:///e:/MyJobs/VisualStudio/web/LegacyMvc.PRM/ParameterModels.vb#L308-L323)（`LegacyMvc.PRM`）および [`ModernCommands`](file:///e:/MyJobs/VisualStudio/web/ModernBff.PRM/ModernParameterModels.cs#L283-L295)（`ModernBff.PRM`）にて、`CommandNames` 定数と `TIParam` / `TOParam` の型ペアを `CommandSpec(Of TIParam, TOParam)` として束ねています。
+   * これにより、各画面で `New ItemAppIParam()` や手動の `DirectCast` を書く必要がなくなり、**コマンド名に対する `IParam` / `OParam` の型間違いをコンパイル時に 100% 防止**できます（[`Form1.vb`](file:///e:/MyJobs/VisualStudio/web/WinFormsClient/Form1.vb#L282-L380) / [`ItemManagementForm.vb`](file:///e:/MyJobs/VisualStudio/web/WinFormsClient/ItemManagementForm.vb#L139-L246)）：
+
+```vb
+' New ItemAppIParam() も手動 DirectCast も不要！
+' LegacyCommands.ItmApp (CommandNames.ItmApp) から IParam(ItemAppIParam) と OParam(ItemAppOParam) の型が自動決定される
+Dim oParam As ItemAppOParam = Await HttpUtil.ExecuteCommandAsync(
+    LegacyCommands.ItmApp,
+    Sub(p)
+        p.TargetItmCd = "ITM-001"
+        p.TargetBomNo = "BOM-2026-001"
+        p.TargetDrawingNo = "drw004"
+        p.ActionMode = "QUERY_AND_APPROVE"
+    End Sub,
+    "Client/execute")
 ```
+
 

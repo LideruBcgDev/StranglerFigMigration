@@ -397,6 +397,8 @@ public class ViewController : ControllerBase
             iParamToken = JToken.Parse(body.IParam.Value.GetRawText());
         }
 
+        LegacyCommands.EnsureRegistered();
+        ModernCommands.EnsureRegistered();
         CommandDispatcher.RegisterAssembly(typeof(ProjectSearchCommand).Assembly);
         CommandConfigEntry? entry = null;
         var cmd = CommandDispatcher.CreateCommand(resolvedName, iParamToken, ref entry);

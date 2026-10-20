@@ -298,4 +298,28 @@ Namespace Global.LegacyMvc.PRM
         Public Property CustomerName As String = String.Empty
     End Class
 
+    ' ====================================================================================
+    ' 【レガシーコマンド型付きカタログ (LegacyMvc.PRM.LegacyCommands)】
+    ' コマンド名定数 (CommandNames.XXX) が決まれば IParam 型と OParam 型が一意に決まるため、
+    ' ここで CommandSpec(Of TIParam, TOParam) として一元定義します。
+    ' ・LegacyCommands.ItmApp.CreateIParam() で New ItemAppIParam() を手書きせずに生成可能
+    ' ・HttpUtil.ExecuteCommandAsync(LegacyCommands.ItmApp, Sub(p) ...) で型変換ミスを100%防止可能
+    ' ====================================================================================
+    Public NotInheritable Class LegacyCommands
+        Public Shared ReadOnly ItmApp As New CommandSpec(Of ItemAppIParam, ItemAppOParam)(CommandNames.ItmApp)
+        Public Shared ReadOnly ItmSch As New CommandSpec(Of ItemSearchIParam, ItemSearchOParam)(CommandNames.ItmSch)
+        Public Shared ReadOnly ItmSav As New CommandSpec(Of ItemSaveIParam, ItemSaveOParam)(CommandNames.ItmSav)
+        Public Shared ReadOnly DrwSch As New CommandSpec(Of DrawingSearchIParam, DrawingSearchOParam)(CommandNames.DrwSch)
+        Public Shared ReadOnly DrwSav As New CommandSpec(Of DrawingSaveIParam, DrawingSaveOParam)(CommandNames.DrwSav)
+        Public Shared ReadOnly CusSch As New CommandSpec(Of CustomerQueryIParam, CustomerQueryOParam)(CommandNames.CusSch)
+
+        Private Sub New()
+        End Sub
+
+        Public Shared Sub EnsureRegistered()
+            ' 静的フィールド初期化を確実にトリガーして CommandParamRegistry へ全ペアを登録
+            Dim _dummy As String = ItmApp.Name
+        End Sub
+    End Class
+
 End Namespace

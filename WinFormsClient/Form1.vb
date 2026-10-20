@@ -54,6 +54,8 @@ Public Class Form1
     Private txtResult As TextBox
 
     Public Sub New()
+        LegacyCommands.EnsureRegistered()
+        ModernCommands.EnsureRegistered()
         InitializeComponent()
     End Sub
 
@@ -276,25 +278,30 @@ Public Class Form1
     End Function
 
     ''' <summary>
-    ''' 【コマンド名指定 ("ITM.APP") + LegacyMvc.PRM.ItemAppOParam への DirectCast 検証】
-    ''' &lt;command name="ITM.APP" command="LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL" db="1"&gt;
+    ''' 【レガシーコマンド実行: CommandNames.ItmApp &amp; LegacyCommands.ItmApp による型安全呼び出し】
+    ''' ・コマンド名定数 Common.APP.CommandNames.ItmApp ("ITM.APP") を共通使用
+    ''' ・New ItemAppIParam() を各画面で手書きせず、LegacyCommands.ItmApp (CommandSpec(Of ItemAppIParam, ItemAppOParam)) から
+    '''   CreateIParam() / ExecuteCommandAsync() を呼ぶことで、IParam と OParam の型変換ミスをコンパイル時に100%防止します。
     ''' </summary>
     Private Async Sub btnExecItmAppCommand_Click(sender As Object, e As EventArgs) Handles btnExecItmAppCommand.Click
         If Not EnsureLoggedInOrPrompt() Then Return
 
         Try
-            Dim iParam As New ItemAppIParam() With {
-                .CommandId = "ITM.APP",
-                .TargetItmCd = "ITM-001",
-                .TargetBomNo = "BOM-2026-001",
-                .TargetDrawingNo = "drw004",
-                .ActionMode = "QUERY_AND_APPROVE"
-            }
+            ' 1. New ItemAppIParam() を直接書かず、LegacyCommands.ItmApp (CommandNames.ItmApp に紐づく定義) から生成＆実行
+            '    戻り値も自動的に ItemAppOParam 型として返却されるため、誤った型へのキャストが起きません。
+            Dim oParam As ItemAppOParam = Await HttpUtil.ExecuteCommandAsync(
+                LegacyCommands.ItmApp,
+                Sub(p)
+                    p.TargetItmCd = "ITM-001"
+                    p.TargetBomNo = "BOM-2026-001"
+                    p.TargetDrawingNo = "drw004"
+                    p.ActionMode = "QUERY_AND_APPROVE"
+                End Sub,
+                "Client/execute")
 
-            ' Common.APP.StranglerHttpClientUtility を使ってコマンド名 "ITM.APP" で送信
-            ' 返却された Object (OParamBase) を LegacyMvc.PRM.ItemAppOParam へ DirectCast する
-            Dim rawOParam As Object = Await HttpUtil.ExecuteCommandAsync("ITM.APP", iParam, "Client/execute")
-            Dim oParam As ItemAppOParam = DirectCast(rawOParam, ItemAppOParam)
+            ' (参考) コマンド名定数 CommandNames.ItmApp から IParam を自動生成して DirectCast する場合も型検証付きで実行可能:
+            ' Dim iParam = CommandParamRegistry.CreateIParam(Of ItemAppIParam)(CommandNames.ItmApp)
+            ' Dim oParam = DirectCast(Await HttpUtil.ExecuteCommandAsync(CommandNames.ItmApp, iParam), ItemAppOParam)
 
             Dim firstBom As BomRecord = oParam.Boms.FirstOrDefault()
             Dim bomSummary As String = If(firstBom IsNot Nothing,
@@ -307,10 +314,10 @@ Public Class Form1
                 "(なし)")
 
             txtResult.Text =
-                "=== [成功] コマンド名 ""ITM.APP"" 実行 & LegacyMvc.PRM.ItemAppOParam への DirectCast 完了 ===" & Environment.NewLine &
-                "Config 定義   : <command name=""ITM.APP"" command=""LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL"" db=""1"">" & Environment.NewLine &
-                "通信クラス    : Common.APP.StranglerHttpClientUtility.ExecuteCommandAsync(""ITM.APP"", iParam)" & Environment.NewLine &
-                "返却型キャスト: Dim oParam As ItemAppOParam = DirectCast(rawOParam, ItemAppOParam)" & Environment.NewLine &
+                $"=== [成功] 定数 CommandNames.ItmApp (""{CommandNames.ItmApp}"") & LegacyCommands.ItmApp 実行完了 ===" & Environment.NewLine &
+                $"コマンド名定数 : Common.APP.CommandNames.ItmApp = ""{CommandNames.ItmApp}""" & Environment.NewLine &
+                $"型付きカタログ : LegacyMvc.PRM.LegacyCommands.ItmApp (IParam={LegacyCommands.ItmApp.IParamType.Name}, OParam={LegacyCommands.ItmApp.OParamType.Name})" & Environment.NewLine &
+                $"型安全呼び出し : Await HttpUtil.ExecuteCommandAsync(LegacyCommands.ItmApp, Sub(p) ...)" & Environment.NewLine &
                 New String("-"c, 75) & Environment.NewLine &
                 $"ExecutedCommandName  : {oParam.ExecutedCommandName}" & Environment.NewLine &
                 $"DbNumberUsed         : {oParam.DbNumberUsed}" & Environment.NewLine &
@@ -322,27 +329,26 @@ Public Class Form1
                 $"Boms.Count           : {oParam.Boms.Count} 件" & Environment.NewLine &
                 $"Drawings.Count       : {oParam.Drawings.Count} 件"
         Catch ex As Exception
-            txtResult.Text = $"[ITM.APP 実行エラー]{Environment.NewLine}{ex}"
+            txtResult.Text = $"[{CommandNames.ItmApp} 実行エラー]{Environment.NewLine}{ex}"
         End Try
     End Sub
 
     ''' <summary>
-    ''' 【モダン側コマンド名指定 ("PRJ.SCH") + ModernBff.PRM.ProjectSearchOParam への DirectCast 検証】
-    ''' &lt;CommandDefinition("PRJ.SCH", Db:=1)&gt; ModernBff.MDL.Commands.ProjectSearchCommand
+    ''' 【モダンコマンド実行: CommandNames.PrjSch &amp; ModernCommands.PrjSch による型安全呼び出し】
+    ''' ・コマンド名定数 Common.APP.CommandNames.PrjSch ("PRJ.SCH") を共通使用
+    ''' ・ModernCommands.PrjSch (CommandSpec(Of ProjectSearchIParam, ProjectSearchOParam)) により
+    '''   New ProjectSearchIParam() の手書きや型変換ミスを防止します。
     ''' </summary>
     Private Async Sub btnExecPrjSchCommand_Click(sender As Object, e As EventArgs) Handles btnExecPrjSchCommand.Click
         If Not EnsureLoggedInOrPrompt() Then Return
 
         Try
-            Dim iParam As New ProjectSearchIParam() With {
-                .CommandId = "PRJ.SCH",
-                .Keyword = ""
-            }
-
-            ' Common.APP.StranglerHttpClientUtility を使ってモダンコマンド名 "PRJ.SCH" で送信し、
-            ' 返却された Object (OParamBase) を ModernBff.PRM.ProjectSearchOParam へ DirectCast する
-            Dim rawOParam As Object = Await HttpUtil.ExecuteCommandAsync("PRJ.SCH", iParam, "Client/execute")
-            Dim oParam As ProjectSearchOParam = DirectCast(rawOParam, ProjectSearchOParam)
+            Dim oParam As ProjectSearchOParam = Await HttpUtil.ExecuteCommandAsync(
+                ModernCommands.PrjSch,
+                Sub(p)
+                    p.Keyword = ""
+                End Sub,
+                "Client/execute")
 
             Dim firstPrj As IntegratedProjectRecord = oParam.IntegratedProjects.FirstOrDefault()
             Dim prjSummary As String = If(firstPrj IsNot Nothing,
@@ -350,10 +356,10 @@ Public Class Form1
                 "(なし)")
 
             txtResult.Text =
-                "=== [成功] モダンコマンド名 ""PRJ.SCH"" 実行 & ModernBff.PRM.ProjectSearchOParam への DirectCast 完了 ===" & Environment.NewLine &
-                "コマンド定義  : <CommandDefinition(""PRJ.SCH"", Db:=1)> ModernBff.MDL.Commands.ProjectSearchCommand" & Environment.NewLine &
-                "通信クラス    : Common.APP.StranglerHttpClientUtility.ExecuteCommandAsync(""PRJ.SCH"", iParam)" & Environment.NewLine &
-                "返却型キャスト: Dim oParam As ProjectSearchOParam = DirectCast(rawOParam, ProjectSearchOParam)" & Environment.NewLine &
+                $"=== [成功] 定数 CommandNames.PrjSch (""{CommandNames.PrjSch}"") & ModernCommands.PrjSch 実行完了 ===" & Environment.NewLine &
+                $"コマンド名定数 : Common.APP.CommandNames.PrjSch = ""{CommandNames.PrjSch}""" & Environment.NewLine &
+                $"型付きカタログ : ModernBff.PRM.ModernCommands.PrjSch (IParam={ModernCommands.PrjSch.IParamType.Name}, OParam={ModernCommands.PrjSch.OParamType.Name})" & Environment.NewLine &
+                $"型安全呼び出し : Await HttpUtil.ExecuteCommandAsync(ModernCommands.PrjSch, Sub(p) ...)" & Environment.NewLine &
                 New String("-"c, 75) & Environment.NewLine &
                 $"ExecutedCommandName  : {oParam.ExecutedCommandName}" & Environment.NewLine &
                 $"DbNumberUsed         : {oParam.DbNumberUsed}" & Environment.NewLine &
@@ -363,7 +369,7 @@ Public Class Form1
                 $"IntegratedProjects   : {oParam.IntegratedProjects.Count} 件" & Environment.NewLine &
                 $"AllWorkflows         : {oParam.AllWorkflows.Count} 件"
         Catch ex As Exception
-            txtResult.Text = $"[PRJ.SCH 実行エラー]{Environment.NewLine}{ex}"
+            txtResult.Text = $"[{CommandNames.PrjSch} 実行エラー]{Environment.NewLine}{ex}"
         End Try
     End Sub
 

@@ -10,8 +10,9 @@ Imports Newtonsoft.Json.Linq
 ' ====================================================================================
 ' Config 指定例: <command name="ITM.APP" command="LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL" db="1" />
 ' に完全一致するクラス名 (RootNamespace = LegacyMvc.MDL 直下の CommandsLegacyApprovalStore)
+' コマンド名には Common.APP.CommandNames.ItmApp 定数を使用
 ' ====================================================================================
-<CommandDefinition("ITM.APP", Db:=1, Description:="品目・BOM・図面の承認・照会コマンド (LegacyMvc.MDL.CommandsLegacyApprovalStore)")>
+<CommandDefinition(CommandNames.ItmApp, Db:=1, Description:="品目・BOM・図面の承認・照会コマンド (LegacyMvc.MDL.CommandsLegacyApprovalStore)")>
 Public Class CommandsLegacyApprovalStore
     Inherits Commands.CommandBase(Of ItemAppIParam, ItemAppOParam)
 
@@ -188,7 +189,7 @@ Namespace Commands
     ' 具体コマンドクラス群 (ICommand 実装 / LegacyMvc.PRM の IParam・OParam を使用)
     ' ====================================================================================
 
-    <CommandDefinition("ITM.SCH", Db:=1, Description:="品目検索コマンド (ItemSearchCommand)")>
+    <CommandDefinition(CommandNames.ItmSch, Db:=1, Description:="品目検索コマンド (ItemSearchCommand)")>
     Public Class ItemSearchCommand
         Inherits CommandBase(Of ItemSearchIParam, ItemSearchOParam)
 
@@ -208,7 +209,7 @@ Namespace Commands
         End Sub
     End Class
 
-    <CommandDefinition("ITM.SAV", Db:=1, Description:="品目登録・更新コマンド (ItemSaveCommand)")>
+    <CommandDefinition(CommandNames.ItmSav, Db:=1, Description:="品目登録・更新コマンド (ItemSaveCommand)")>
     Public Class ItemSaveCommand
         Inherits CommandBase(Of ItemSaveIParam, ItemSaveOParam)
 
@@ -240,7 +241,7 @@ Namespace Commands
         End Sub
     End Class
 
-    <CommandDefinition("DRW.SCH", Db:=1, Description:="図面検索コマンド (DrawingSearchCommand)")>
+    <CommandDefinition(CommandNames.DrwSch, Db:=1, Description:="図面検索コマンド (DrawingSearchCommand)")>
     Public Class DrawingSearchCommand
         Inherits CommandBase(Of DrawingSearchIParam, DrawingSearchOParam)
 
@@ -258,7 +259,7 @@ Namespace Commands
         End Sub
     End Class
 
-    <CommandDefinition("DRW.SAV", Db:=1, Description:="図面登録・更新コマンド (DrawingSaveCommand)")>
+    <CommandDefinition(CommandNames.DrwSav, Db:=1, Description:="図面登録・更新コマンド (DrawingSaveCommand)")>
     Public Class DrawingSaveCommand
         Inherits CommandBase(Of DrawingSaveIParam, DrawingSaveOParam)
 
@@ -288,7 +289,7 @@ Namespace Commands
         End Sub
     End Class
 
-    <CommandDefinition("CUS.SCH", Db:=1, Description:="顧客照会コマンド (CustomerQueryCommand)")>
+    <CommandDefinition(CommandNames.CusSch, Db:=1, Description:="顧客照会コマンド (CustomerQueryCommand)")>
     Public Class CustomerQueryCommand
         Inherits CommandBase(Of CustomerQueryIParam, CustomerQueryOParam)
 
@@ -323,13 +324,14 @@ Namespace Commands
         Private Shared ReadOnly ConfigMappings As New Dictionary(Of String, CommandConfigEntry)(StringComparer.OrdinalIgnoreCase)
 
         Shared Sub New()
-            ' 1. Config (<command name="ITM.APP" command="LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL" db="1" />) の既定登録
-            RegisterConfigCommand("ITM.APP", "LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL", 1, "Config (<command name=""ITM.APP"" command=""LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL"" db=""1"">)")
-            RegisterConfigCommand("ITM.SCH", "LegacyMvc.MDL.Commands.ItemSearchCommand,LegacyMvc.MDL", 1, "Config (<command name=""ITM.SCH"" ... db=""1"">)")
-            RegisterConfigCommand("ITM.SAV", "LegacyMvc.MDL.Commands.ItemSaveCommand,LegacyMvc.MDL", 1, "Config (<command name=""ITM.SAV"" ... db=""1"">)")
-            RegisterConfigCommand("DRW.SCH", "LegacyMvc.MDL.Commands.DrawingSearchCommand,LegacyMvc.MDL", 1, "Config (<command name=""DRW.SCH"" ... db=""1"">)")
-            RegisterConfigCommand("DRW.SAV", "LegacyMvc.MDL.Commands.DrawingSaveCommand,LegacyMvc.MDL", 1, "Config (<command name=""DRW.SAV"" ... db=""1"">)")
-            RegisterConfigCommand("CUS.SCH", "LegacyMvc.MDL.Commands.CustomerQueryCommand,LegacyMvc.MDL", 1, "Config (<command name=""CUS.SCH"" ... db=""1"">)")
+            LegacyCommands.EnsureRegistered()
+            ' 1. Config (<command name="ITM.APP" command="LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL" db="1" />) の既定登録 (CommandNames 定数を使用)
+            RegisterConfigCommand(CommandNames.ItmApp, "LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL", 1, "Config (<command name=""ITM.APP"" command=""LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL"" db=""1"">)")
+            RegisterConfigCommand(CommandNames.ItmSch, "LegacyMvc.MDL.Commands.ItemSearchCommand,LegacyMvc.MDL", 1, "Config (<command name=""ITM.SCH"" ... db=""1"">)")
+            RegisterConfigCommand(CommandNames.ItmSav, "LegacyMvc.MDL.Commands.ItemSaveCommand,LegacyMvc.MDL", 1, "Config (<command name=""ITM.SAV"" ... db=""1"">)")
+            RegisterConfigCommand(CommandNames.DrwSch, "LegacyMvc.MDL.Commands.DrawingSearchCommand,LegacyMvc.MDL", 1, "Config (<command name=""DRW.SCH"" ... db=""1"">)")
+            RegisterConfigCommand(CommandNames.DrwSav, "LegacyMvc.MDL.Commands.DrawingSaveCommand,LegacyMvc.MDL", 1, "Config (<command name=""DRW.SAV"" ... db=""1"">)")
+            RegisterConfigCommand(CommandNames.CusSch, "LegacyMvc.MDL.Commands.CustomerQueryCommand,LegacyMvc.MDL", 1, "Config (<command name=""CUS.SCH"" ... db=""1"">)")
 
             ' 2. 別案: <CommandDefinition> 属性によるアセンブリ自動検出 (Config 記述漏れ防止)
             RegisterAssembly(GetType(CommandDispatcher).Assembly)

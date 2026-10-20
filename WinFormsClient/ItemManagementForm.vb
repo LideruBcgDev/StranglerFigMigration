@@ -137,18 +137,19 @@ Public Class ItemManagementForm
     End Sub
 
     ''' <summary>
-    ''' Common.APP.StranglerHttpClientUtility でコマンド "ITM.SCH" を呼び出し、
-    ''' 返却された OParam を DirectCast(rawResult, ItemSearchOParam) でキャストして表示します。
+    ''' LegacyCommands.ItmSch (CommandNames.ItmSch = "ITM.SCH") を使って型安全に品目検索を実行します。
+    ''' New ItemSearchIParam() や手動 DirectCast を書かずに ItemSearchOParam を受け取れます。
     ''' </summary>
     Private Async Function LoadItemsAsync(keyword As String) As Task
         Try
-            lblStatus.Text = "Common.APP.StranglerHttpClientUtility 経由でコマンド 'ITM.SCH' を実行中..."
-            Dim searchIParam As New ItemSearchIParam() With {
-                .Keyword = keyword
-            }
+            lblStatus.Text = $"Common.APP.StranglerHttpClientUtility 経由でコマンド '{CommandNames.ItmSch}' を実行中..."
 
-            Dim rawResult As Object = Await _httpUtil.ExecuteCommandAsync("ITM.SCH", searchIParam, "Client/execute")
-            Dim searchOParam As ItemSearchOParam = DirectCast(rawResult, ItemSearchOParam)
+            Dim searchOParam As ItemSearchOParam = Await _httpUtil.ExecuteCommandAsync(
+                LegacyCommands.ItmSch,
+                Sub(p)
+                    p.Keyword = keyword
+                End Sub,
+                "Client/execute")
 
             Dim dt As New DataTable()
             dt.Columns.Add("品目コード (ITM_CD)")
@@ -172,41 +173,41 @@ Public Class ItemManagementForm
             Next
 
             dgvItems.DataSource = dt
-            lblStatus.Text = $"✓ DirectCast(result, ItemSearchOParam) 成功: {searchOParam.Items.Count} 件の品目を取得しました。"
+            lblStatus.Text = $"✓ LegacyCommands.ItmSch ({CommandNames.ItmSch}) 成功: {searchOParam.Items.Count} 件の品目を取得しました。"
         Catch ex As Exception
             lblStatus.Text = "検索エラー: " & ex.Message
         End Try
     End Function
 
     ''' <summary>
-    ''' &lt;command name="ITM.APP" command="LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL" db="1"&gt;
-    ''' コマンド名 "ITM.APP" で通信し、返却された OParam を DirectCast(result, ItemAppOParam) で受け取る処理
+    ''' LegacyCommands.ItmApp (CommandNames.ItmApp = "ITM.APP") による型安全実行
     ''' </summary>
     Private Async Sub btnExecItmApp_Click(sender As Object, e As EventArgs) Handles btnExecItmApp.Click
         Try
             Dim code As String = If(String.IsNullOrWhiteSpace(txtItmCd.Text), "ITM-001", txtItmCd.Text.Trim())
-            Dim appIParam As New ItemAppIParam() With {
-                .TargetItmCd = code,
-                .TargetBomNo = "BOM-2026-001",
-                .TargetDrawingNo = "drw004",
-                .ActionMode = "QUERY_AND_APPROVE"
-            }
 
-            Dim rawResult As Object = Await _httpUtil.ExecuteCommandAsync("ITM.APP", appIParam, "Client/execute")
-            Dim appOParam As ItemAppOParam = DirectCast(rawResult, ItemAppOParam)
+            Dim appOParam As ItemAppOParam = Await _httpUtil.ExecuteCommandAsync(
+                LegacyCommands.ItmApp,
+                Sub(p)
+                    p.TargetItmCd = code
+                    p.TargetBomNo = "BOM-2026-001"
+                    p.TargetDrawingNo = "drw004"
+                    p.ActionMode = "QUERY_AND_APPROVE"
+                End Sub,
+                "Client/execute")
 
             Await LoadItemsAsync(String.Empty)
-            lblStatus.Text = $"✓ DirectCast(result, ItemAppOParam) 成功: {appOParam.SummaryMessage}"
+            lblStatus.Text = $"✓ LegacyCommands.ItmApp ({CommandNames.ItmApp}) 成功: {appOParam.SummaryMessage}"
             MessageBox.Show(
-                $"【コマンド ""ITM.APP"" 実行 & DirectCast 成功】" & Environment.NewLine &
+                $"【コマンド定数 CommandNames.ItmApp (""{CommandNames.ItmApp}"") 実行完了】" & Environment.NewLine &
                 $"実行クラス: {appOParam.ExecutedCommandName} (db={appOParam.DbNumberUsed})" & Environment.NewLine &
                 $"メッセージ: {appOParam.SummaryMessage}" & Environment.NewLine &
                 $"品目件数  : {appOParam.Items.Count} 件 / BOM件数: {appOParam.Boms.Count} 件 / 図面件数: {appOParam.Drawings.Count} 件",
-                "ITM.APP DirectCast 完了",
+                "ITM.APP 実行完了",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information)
         Catch ex As Exception
-            MessageBox.Show("ITM.APP 実行エラー: " & ex.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            MessageBox.Show($"{CommandNames.ItmApp} 実行エラー: " & ex.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
     End Sub
 
@@ -228,17 +229,18 @@ Public Class ItemManagementForm
             Dim qty As Integer = 0
             Integer.TryParse(txtStockQty.Text, qty)
 
-            Dim saveIParam As New ItemSaveIParam() With {
-                .ItmCd = txtItmCd.Text.Trim(),
-                .ItmNm = txtItmNm.Text.Trim(),
-                .Category = txtCategory.Text.Trim(),
-                .UnitPrice = price,
-                .StockQty = qty
-            }
+            ' New ItemSaveIParam() を直接書かず、LegacyCommands.ItmSav.CreateIParam で生成
+            Dim saveIParam As ItemSaveIParam = LegacyCommands.ItmSav.CreateIParam(
+                Sub(p)
+                    p.ItmCd = txtItmCd.Text.Trim()
+                    p.ItmNm = txtItmNm.Text.Trim()
+                    p.Category = txtCategory.Text.Trim()
+                    p.UnitPrice = price
+                    p.StockQty = qty
+                End Sub)
 
-            ' 1. コマンドディスパッチャ ("ITM.SAV") で実行し、ItemSaveOParam に DirectCast
-            Dim rawResult As Object = Await _httpUtil.ExecuteCommandAsync("ITM.SAV", saveIParam, "Client/execute")
-            Dim saveOParam As ItemSaveOParam = DirectCast(rawResult, ItemSaveOParam)
+            ' 1. LegacyCommands.ItmSav (CommandNames.ItmSav = "ITM.SAV") で型安全に実行
+            Dim saveOParam As ItemSaveOParam = Await _httpUtil.ExecuteCommandAsync(LegacyCommands.ItmSav, saveIParam, "Client/execute")
 
             ' 2. ModernBff の EF Core テーブルとも同期
             Dim syncBody As String = JsonSerializer.Serialize(New With {

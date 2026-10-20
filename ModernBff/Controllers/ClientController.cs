@@ -14,7 +14,7 @@ namespace ModernBff.Controllers;
 
 public class ClientCommandExecuteRequestDto
 {
-    public string CommandName { get; set; } = "ITM.APP";
+    public string CommandName { get; set; } = CommandNames.ItmApp;
     public JsonElement? IParam { get; set; }
 }
 
@@ -408,6 +408,8 @@ public class ClientController : ControllerBase
             }
         }
 
+        LegacyCommands.EnsureRegistered();
+        ModernCommands.EnsureRegistered();
         CommandDispatcher.RegisterAssembly(typeof(ProjectSearchCommand).Assembly);
         CommandConfigEntry? entry = null;
         var cmd = CommandDispatcher.CreateCommand(resolvedName, iParamToken, ref entry);

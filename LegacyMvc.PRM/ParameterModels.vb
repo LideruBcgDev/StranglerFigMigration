@@ -103,7 +103,7 @@ Namespace Global.LegacyMvc.PRM
         Public Property ApprovedBy As String
         Public Property ApprovedOrg As String
         Public Property ApprovedAtUtc As DateTime?
-        ' --- 別プロセス (DrawingProcessorWorker) で非同期処理される TIFF変換・OCR・Elasticsearch 連携情報 ---
+        ' --- 別プロセス (ProcessorWorker) で非同期処理される TIFF変換・OCR・Elasticsearch 連携情報 ---
         Public Property SourceTiffFileName As String = String.Empty
         Public Property ThumbnailPngPath As String = String.Empty
         Public Property OcrAndEsStatus As String = "INDEXED (完了)"
@@ -113,7 +113,7 @@ Namespace Global.LegacyMvc.PRM
     End Class
 
     ''' <summary>
-    ''' 【IIS とは別プロセス (DrawingProcessorWorker) で実行される図面非同期ジョブ】
+    ''' 【IIS とは別プロセス (ProcessorWorker) で実行される非同期ジョブ】
     ''' 1. TIFF ファイルからサムネイル用 PNG ファイルの生成
     ''' 2. 図面ファイルの OCR テキスト抽出
     ''' 3. Elasticsearch への全文検索インデックス登録

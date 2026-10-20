@@ -145,7 +145,7 @@ Namespace Commands
                 .ApprovedAtUtc = If(existing IsNot Nothing, existing.ApprovedAtUtc, Nothing),
                 .SourceTiffFileName = $"{cleanNo}.tif",
                 .ThumbnailPngPath = $"/thumbnails/{cleanNo}.thumb.png",
-                .OcrAndEsStatus = "QUEUED (別プロセス DrawingProcessorWorker 処理待ち)"
+                .OcrAndEsStatus = "QUEUED (別プロセス ProcessorWorker 処理待ち)"
             }
 
             ' Web / IIS プロセス内では重い TIFF->PNG 変換や OCR、Elasticsearch 通信を行わず、
@@ -199,10 +199,10 @@ Namespace Commands
     End Class
 
     ''' <summary>
-    ''' 【IIS プロセスと別プロセス (DrawingProcessorWorker) を疎結合に繋ぐ永続化ジョブキュー (Outbox + ファイル共有キュー)】
+    ''' 【IIS プロセスと別プロセス (ProcessorWorker) を疎結合に繋ぐ永続化ジョブキュー (Outbox + ファイル共有キュー)】
     ''' ・Web (LegacyMvc / ModernBff) 側は図面登録時に EnqueueDrawingJob() でジョブを投入して即座に HTTP 応答を返します。
     ''' ・IIS のリサイクルや Web アプリ再起動が発生しても、ジョブはファイルキュー (%TEMP%\StranglerDrawingJobQueue) に永続化されているため失われません。
-    ''' ・別プロセス (DrawingProcessorWorker.exe / Windows サービス) が ProcessPendingJobs() で順次取り出し、
+    ''' ・別プロセス (ProcessorWorker.exe / Windows サービス) が ProcessPendingJobs() で順次取り出し、
     '''   ① TIFF -> サムネイル PNG 生成、② 図面 OCR 抽出、③ Elasticsearch 登録 を実行します。
     ''' </summary>
     Public NotInheritable Class DrawingOutboxQueueStore
@@ -248,7 +248,7 @@ Namespace Commands
         End Function
 
         ''' <summary>
-        ''' 別プロセス (DrawingProcessorWorker) から呼び出され、QUEUED 状態のジョブを処理します。
+        ''' 別プロセス (ProcessorWorker) から呼び出され、QUEUED 状態のジョブを処理します。
         ''' 1. .tif -> サムネイル .png 生成
         ''' 2. OCR テキスト抽出
         ''' 3. Elasticsearch インデックス登録
@@ -258,7 +258,7 @@ Namespace Commands
             Dim processed As New List(Of DrawingBackgroundJobRecord)()
             Dim procInfo As String = If(Not String.IsNullOrWhiteSpace(workerName),
                 workerName,
-                $"DrawingProcessorWorker (PID={Process.GetCurrentProcess().Id}, Out-of-Process Worker)")
+                $"ProcessorWorker (PID={Process.GetCurrentProcess().Id}, Out-of-Process Worker)")
 
             For Each job As DrawingBackgroundJobRecord In MemoryJobs.Values.Where(Function(j) String.Equals(j.Status, "QUEUED", StringComparison.OrdinalIgnoreCase)).OrderBy(Function(j) j.EnqueuedAtUtc).ToList()
                 job.Status = "PROCESSING"

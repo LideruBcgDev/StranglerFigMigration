@@ -210,7 +210,7 @@ public class ViewController : ControllerBase
     /// <summary>
     /// GET /View/drawings/jobs?processNow=true
     /// 図面登録時にキューに積まれた非同期ジョブ（TIFF->サムネイルPNG生成、OCR解析、Elasticsearch登録）の状態を確認します。
-    /// processNow=true の場合は、別プロセス Worker (DrawingProcessorWorker) の処理を即時トリガーして結果を返します。
+    /// processNow=true の場合は、別プロセス Worker (ProcessorWorker) の処理を即時トリガーして結果を返します。
     /// </summary>
     [HttpGet("drawings/jobs")]
     [HttpPost("drawings/jobs")]
@@ -219,13 +219,13 @@ public class ViewController : ControllerBase
         List<DrawingBackgroundJobRecord> newlyProcessed = new();
         if (processNow)
         {
-            newlyProcessed = DrawingOutboxQueueStore.ProcessPendingJobs("DrawingProcessorWorker.exe (Out-of-Process Worker Simulation)");
+            newlyProcessed = DrawingOutboxQueueStore.ProcessPendingJobs("ProcessorWorker.exe (Out-of-Process Worker Simulation)");
         }
 
         var allJobs = DrawingOutboxQueueStore.GetAllJobs();
         return Ok(new
         {
-            Architecture = "Web/IIS (Producer: Enqueue Only) ---> Persistent Outbox Queue ---> DrawingProcessorWorker.exe (Consumer: Windows Service / Separate Process)",
+            Architecture = "Web/IIS (Producer: Enqueue Only) ---> Persistent Outbox Queue ---> ProcessorWorker.exe (Consumer: Windows Service / Separate Process)",
             QueueDirectory = DrawingOutboxQueueStore.QueueDirectory,
             NewlyProcessedCount = newlyProcessed.Count,
             TotalJobCount = allJobs.Count,

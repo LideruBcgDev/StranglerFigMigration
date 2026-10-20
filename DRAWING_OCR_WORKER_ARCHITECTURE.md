@@ -22,7 +22,7 @@ IIS（または Web API ホスト）の HTTP リクエスト処理内、ある�
 
 ### 全体構成：Producer-Consumer（Outbox キュー ＋ 独立 Worker サービス）
 
-Web サーバー（IIS / `ModernBff`）は **「ファイル保存＋DB登録＋ジョブキューへの投入（Enqueue）」だけを行って即座（数ミリ秒）にブラウザへ応答**し、別プロセスである **[`DrawingProcessorWorker`](file:///e:/MyJobs/VisualStudio/web/DrawingProcessorWorker/Program.cs)**（Windows サービス）がキューから非同期に取り出して処理します。
+Web サーバー（IIS / `ModernBff`）は **「ファイル保存＋DB登録＋ジョブキューへの投入（Enqueue）」だけを行って即座（数ミリ秒）にブラウザへ応答**し、別プロセスである **[`ProcessorWorker`](file:///e:/MyJobs/VisualStudio/web/ProcessorWorker/Program.cs)**（Windows サービス）がキューから非同期に取り出して処理します。
 
 ```mermaid
 sequenceDiagram
@@ -31,7 +31,7 @@ sequenceDiagram
     participant Web as ModernBff / LegacyMvc<br/>(IIS プロセス)
     participant Storage as 共有ストレージ<br/>(TIFF / PNG 保存先)
     participant Queue as 永続化ジョブキュー<br/>(DB Outbox / Redis / FileQueue)
-    participant Worker as DrawingProcessorWorker.exe<br/>(別プロセス: Windows サービス)
+    participant Worker as ProcessorWorker.exe<br/>(別プロセス: Windows サービス)
     participant ES as Elasticsearch
 
     User->>Web: POST /View/drawings (図面 .tif 登録)
@@ -52,9 +52,9 @@ sequenceDiagram
 
 | 構成要素 | 推奨する実装方式 | 本ソリューションでの実装箇所 |
 | :--- | :--- | :--- |
-| **① 別プロセスのホスティング方式** | **`.NET Worker Service` (`BackgroundService`) + `UseWindowsService()`**<br>・IIS とは完全に独立した実行ファイル (`DrawingProcessorWorker.exe`) としてビルドし、OS の **Windows サービス**（または別サーバー／コンテナ）として常駐起動させます。<br>・IIS が何度リサイクルされても `DrawingProcessorWorker.exe` は一切影響を受けません。 | [`DrawingProcessorWorker/DrawingProcessorWorker.csproj`](file:///e:/MyJobs/VisualStudio/web/DrawingProcessorWorker/DrawingProcessorWorker.csproj)<br>[`DrawingProcessorWorker/Program.cs`](file:///e:/MyJobs/VisualStudio/web/DrawingProcessorWorker/Program.cs) |
+| **① 別プロセスのホスティング方式** | **`.NET Worker Service` (`BackgroundService`) + `UseWindowsService()`**<br>・IIS とは完全に独立した実行ファイル (`ProcessorWorker.exe`) としてビルドし、OS の **Windows サービス**（または別サーバー／コンテナ）として常駐起動させます。<br>・IIS が何度リサイクルされても `ProcessorWorker.exe` は一切影響を受けません。 | [`ProcessorWorker/ProcessorWorker.csproj`](file:///e:/MyJobs/VisualStudio/web/ProcessorWorker/ProcessorWorker.csproj)<br>[`ProcessorWorker/Program.cs`](file:///e:/MyJobs/VisualStudio/web/ProcessorWorker/Program.cs) |
 | **② プロセス間連携（キューの永続化）** | **DB Transactional Outbox テーブル** または **Redis Streams / 永続化ファイルキュー**<br>・最も堅牢なのは、図面テーブル (`DRW_TBL`) と同じ DB トランザクション内で `DRW_JOB_QUEUE_TBL` に `STATUS='QUEUED'` で `INSERT` する **Transactional Outbox パターン**（＋高速通知用に Redis Pub/Sub 併用）です。<br>・これにより「DB登録は成功したがキュー投入に失敗する」不整合が100%防げます。 | [`LegacyMvc.PRM/ParameterModels.vb`](file:///e:/MyJobs/VisualStudio/web/LegacyMvc.PRM/ParameterModels.vb#L118-L142) (`DrawingBackgroundJobRecord`)<br>[`LegacyMvc.MDL/Commands/LegacyApprovalCommands.vb`](file:///e:/MyJobs/VisualStudio/web/LegacyMvc.MDL/Commands/LegacyApprovalCommands.vb#L202-L315) (`DrawingOutboxQueueStore`) |
-| **③ 冪等性（Idempotency）と Graceful Shutdown** | ・**Graceful Shutdown**: `ExecuteAsync(CancellationToken stoppingToken)` で `stoppingToken` を監視し、Windows サービス自体を再起動する際も「現在処理中の1枚のOCR・ES登録が完了するまで待ってからプロセスを終了」させます。<br>・**冪等性**: サムネイル PNG の上書き保存や Elasticsearch の `PUT /{index}/_doc/{drawingNo}`（ドキュメントIDを図面番号に固定）により、万一リトライで2回実行されても重複登録になりません。 | [`DrawingProcessorWorker/Program.cs`](file:///e:/MyJobs/VisualStudio/web/DrawingProcessorWorker/Program.cs#L43-L81) |
+| **③ 冪等性（Idempotency）と Graceful Shutdown** | ・**Graceful Shutdown**: `ExecuteAsync(CancellationToken stoppingToken)` で `stoppingToken` を監視し、Windows サービス自体を再起動する際も「現在処理中の1枚のOCR・ES登録が完了するまで待ってからプロセスを終了」させます。<br>・**冪等性**: サムネイル PNG の上書き保存や Elasticsearch の `PUT /{index}/_doc/{drawingNo}`（ドキュメントIDを図面番号に固定）により、万一リトライで2回実行されても重複登録になりません。 | [`ProcessorWorker/Program.cs`](file:///e:/MyJobs/VisualStudio/web/ProcessorWorker/Program.cs#L43-L81) |
 
 ---
 
@@ -85,7 +85,7 @@ sequenceDiagram
 ## 5. 本ソリューションでの動作確認方法
 
 1. **別プロセス Worker の起動**
-   * `DrawingProcessorWorker` プロジェクト（`dotnet run --project DrawingProcessorWorker`、または Windows サービス登録）を起動すると、IIS / `ModernBff` とは別プロセスでキュー監視を開始します。
+   * `ProcessorWorker` プロジェクト（`dotnet run --project ProcessorWorker`、または Windows サービス登録）を起動すると、IIS / `ModernBff` とは別プロセスでキュー監視を開始します。
 2. **図面登録からの非同期ジョブ確認**
    * ブラウザの図面管理画面 (`/legacy-drawings`) または `POST /View/drawings` で図面を登録すると、即座に `QUEUED` としてジョブが生成されます。
-   * `WinFormsClient` のコンボボックスに追加した **`/View/drawings/jobs?processNow=true`** を実行（または `DrawingProcessorWorker` プロセスを稼働）すると、**[Step 1] `.tif` → `.thumb.png` 生成 → [Step 2] OCR 抽出 → [Step 3] Elasticsearch インデックス登録** の全ステップの実行ログと結果を確認できます。
+   * `WinFormsClient` のコンボボックスに追加した **`/View/drawings/jobs?processNow=true`** を実行（または `ProcessorWorker` プロセスを稼働）すると、**[Step 1] `.tif` → `.thumb.png` 生成 → [Step 2] OCR 抽出 → [Step 3] Elasticsearch インデックス登録** の全ステップの実行ログと結果を確認できます。

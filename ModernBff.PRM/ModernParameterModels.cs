@@ -251,6 +251,48 @@ public class WorkflowVerifyOParam : OParamBase
 }
 
 /// <summary>
+/// 承認フック (IWorkflowApprovalHook) によって承認された個別対象（品目・BOM・図面など）の情報
+/// 品目名称 (ItmNm) や図面名称 (Title) を保持し、完了後のメール送信フックや Windows 通知フックで利用されます。
+/// </summary>
+public class ApprovedEntityInfo
+{
+    public string HookName { get; set; } = string.Empty;
+    public string DomainType { get; set; } = string.Empty;
+    public string TargetCode { get; set; } = string.Empty;
+    public string TargetName { get; set; } = string.Empty;
+    public string ApprovalStatus { get; set; } = string.Empty;
+    public object? EntitySnapshot { get; set; }
+}
+
+/// <summary>
+/// 完了後フックで送信されたモックメールの履歴レコード
+/// </summary>
+public class MockEmailRecord
+{
+    public string EmailId { get; set; } = string.Empty;
+    public string TriggeredByHook { get; set; } = string.Empty;
+    public string DomainType { get; set; } = string.Empty;
+    public string To { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string Body { get; set; } = string.Empty;
+    public DateTime SentAtUtc { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// 完了後フックで実行された Windows 通知の履歴レコード
+/// </summary>
+public class WindowsNotificationRecord
+{
+    public string NotificationId { get; set; } = string.Empty;
+    public string TriggeredByHook { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string DeliveryMethod { get; set; } = string.Empty;
+    public bool DispatchedToWindowsOs { get; set; }
+    public DateTime NotifiedAtUtc { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
 /// 5. "WF.APR" (ワークフロー最終承認コマンド: WorkflowApproveCommand) 用 IParam / OParam
 /// </summary>
 public class WorkflowApproveIParam : IParamBase
@@ -267,7 +309,11 @@ public class WorkflowApproveOParam : OParamBase
     public string TargetId { get; set; } = string.Empty;
     public string TransactionResult { get; set; } = string.Empty;
     public string TransactionId { get; set; } = string.Empty;
+    public List<string> ExecutedHooks { get; set; } = new();
     public List<string> ExecutionLog { get; set; } = new();
+    public List<ApprovedEntityInfo> ApprovedEntities { get; set; } = new();
+    public List<MockEmailRecord> MockEmailsSent { get; set; } = new();
+    public List<WindowsNotificationRecord> WindowsNotificationsSent { get; set; } = new();
     public WfTblEntity? ModernWorkflow { get; set; }
     public PrjTblEntity? ModernProject { get; set; }
     public BomRecord? LegacyBom { get; set; }

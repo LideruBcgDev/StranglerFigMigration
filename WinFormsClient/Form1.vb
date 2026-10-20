@@ -44,9 +44,11 @@ Public Class Form1
     Private WithEvents btnOpenItemWinForms As Button
     Private WithEvents btnExecItmAppCommand As Button
     Private WithEvents btnExecPrjSchCommand As Button
+    Private WithEvents btnExecWfAprCommand As Button
     Private WithEvents btnOpenDrawingWeb As Button
     Private WithEvents btnOpenProjectWeb As Button
     Private WithEvents btnOpenWorkflowWeb As Button
+    Private _trayNotifyIcon As NotifyIcon
 
     Private lblEndpoint As Label
     Private WithEvents cmbRoute As ComboBox
@@ -112,32 +114,40 @@ Public Class Form1
         }
 
         btnOpenItemWinForms = New Button() With {
-            .Text = "[WinForms] 品目(ITM_TBL)",
-            .Size = New Size(148, 32),
+            .Text = "[WinForms] 品目",
+            .Size = New Size(118, 32),
             .BackColor = Color.FromArgb(15, 118, 110),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
         }
 
         btnExecItmAppCommand = New Button() With {
-            .Text = "[Legacy.PRM: ITM.APP] DirectCast",
-            .Size = New Size(175, 32),
+            .Text = "[Legacy: ITM.APP]",
+            .Size = New Size(132, 32),
             .BackColor = Color.FromArgb(180, 83, 9),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
         }
 
         btnExecPrjSchCommand = New Button() With {
-            .Text = "[Modern.PRM: PRJ.SCH] DirectCast",
-            .Size = New Size(178, 32),
+            .Text = "[Modern: PRJ.SCH]",
+            .Size = New Size(135, 32),
             .BackColor = Color.FromArgb(3, 105, 161),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
         }
 
+        btnExecWfAprCommand = New Button() With {
+            .Text = "[WF.APR: 承認Hook+通知]",
+            .Size = New Size(158, 32),
+            .BackColor = Color.FromArgb(190, 24, 93),
+            .ForeColor = Color.White,
+            .FlatStyle = FlatStyle.Flat
+        }
+
         btnOpenDrawingWeb = New Button() With {
-            .Text = "[Web] 図面(DRW_TBL)",
-            .Size = New Size(122, 32),
+            .Text = "[Web] 図面",
+            .Size = New Size(102, 32),
             .BackColor = Color.FromArgb(71, 85, 105),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
@@ -145,7 +155,7 @@ Public Class Form1
 
         btnOpenProjectWeb = New Button() With {
             .Text = "[Web] 案件統合",
-            .Size = New Size(115, 32),
+            .Size = New Size(108, 32),
             .BackColor = Color.FromArgb(29, 78, 216),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
@@ -153,7 +163,7 @@ Public Class Form1
 
         btnOpenWorkflowWeb = New Button() With {
             .Text = "[Web] WF管理",
-            .Size = New Size(115, 32),
+            .Size = New Size(105, 32),
             .BackColor = Color.FromArgb(109, 40, 217),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
@@ -163,10 +173,18 @@ Public Class Form1
             btnOpenItemWinForms,
             btnExecItmAppCommand,
             btnExecPrjSchCommand,
+            btnExecWfAprCommand,
             btnOpenDrawingWeb,
             btnOpenProjectWeb,
             btnOpenWorkflowWeb
         })
+
+        ' Windows デスクトップ通知用 NotifyIcon (タスクトレイ通知)
+        _trayNotifyIcon = New NotifyIcon() With {
+            .Icon = SystemIcons.Information,
+            .Visible = True,
+            .Text = "Strangler Fig ワークフロー通知"
+        }
 
         ' 3. Gateway 経由の API 検証エリア
         lblEndpoint = New Label() With {
@@ -370,6 +388,58 @@ Public Class Form1
                 $"AllWorkflows         : {oParam.AllWorkflows.Count} 件"
         Catch ex As Exception
             txtResult.Text = $"[{CommandNames.PrjSch} 実行エラー]{Environment.NewLine}{ex}"
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' 【疎結合 Hook 方式のワークフロー最終承認 (CommandNames.WfApr = "WF.APR")】
+    ''' 1. トランザクション内 Hook: ItemApprovalHook / BomApprovalHook / DrawingApprovalHook を疎結合に実行
+    ''' 2. 完了後 Hook (メールモック): 各ドメイン Hook の OnCommittedAsync で「品目名称 (ItmNm)」「図面名称 (Title)」を使ったモックメールを送信
+    ''' 3. 完了後 Hook (Windows 通知): サーバー側の Windows トースト通知に加え、クライアント側でも NotifyIcon で Windows デスクトップ通知を表示
+    ''' </summary>
+    Private Async Sub btnExecWfAprCommand_Click(sender As Object, e As EventArgs) Handles btnExecWfAprCommand.Click
+        If Not EnsureLoggedInOrPrompt() Then Return
+
+        Try
+            Dim oParam As WorkflowApproveOParam = Await HttpUtil.ExecuteCommandAsync(
+                ModernCommands.WfApr,
+                Sub(p)
+                    p.WfId = "WF-9001"
+                    p.SimulateDrawingError = False
+                End Sub,
+                "Client/execute")
+
+            ' Windows 通知の呼び出し (NotifyIcon バルーン通知)
+            Dim winNotify As WindowsNotificationRecord = oParam.WindowsNotificationsSent.FirstOrDefault()
+            If winNotify IsNot Nothing AndAlso _trayNotifyIcon IsNot Nothing Then
+                _trayNotifyIcon.ShowBalloonTip(5000, winNotify.Title, winNotify.Message, ToolTipIcon.Info)
+            End If
+
+            Dim hooksText As String = String.Join(Environment.NewLine & "  - ", oParam.ExecutedHooks)
+            Dim mailLines As New List(Of String)()
+            For Each m As MockEmailRecord In oParam.MockEmailsSent
+                mailLines.Add($"[{m.TriggeredByHook}] To={m.To} | Subject={m.Subject}")
+            Next
+
+            Dim notifyLines As New List(Of String)()
+            For Each n As WindowsNotificationRecord In oParam.WindowsNotificationsSent
+                notifyLines.Add($"[{n.TriggeredByHook}] {n.Title} : {n.Message} ({n.DeliveryMethod})")
+            Next
+
+            txtResult.Text =
+                $"=== [成功] 疎結合 Hook ワークフロー最終承認 ({CommandNames.WfApr}) & メール/Windows通知 完了 ===" & Environment.NewLine &
+                $"TransactionResult : {oParam.TransactionResult}" & Environment.NewLine &
+                New String("-"c, 75) & Environment.NewLine &
+                $"【実行された Hook 一覧 ({oParam.ExecutedHooks.Count} 件)】" & Environment.NewLine &
+                $"  - {hooksText}" & Environment.NewLine &
+                New String("-"c, 75) & Environment.NewLine &
+                $"【完了後 Hook: モックメール送信 ({oParam.MockEmailsSent.Count} 通 - 品目名称/図面名称を使用)】" & Environment.NewLine &
+                $"  {String.Join(Environment.NewLine & "  ", mailLines)}" & Environment.NewLine &
+                New String("-"c, 75) & Environment.NewLine &
+                $"【完了後 Hook: Windows 通知 ({oParam.WindowsNotificationsSent.Count} 件)】" & Environment.NewLine &
+                $"  {String.Join(Environment.NewLine & "  ", notifyLines)}"
+        Catch ex As Exception
+            txtResult.Text = $"[{CommandNames.WfApr} 実行エラー]{Environment.NewLine}{ex}"
         End Try
     End Sub
 

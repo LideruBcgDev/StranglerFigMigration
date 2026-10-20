@@ -252,12 +252,16 @@ public class WorkflowCompleteCommand
     }
 
     /// <summary>
-    /// 3. ワークフロー最終承認 (VERIFIED -> APPROVED)
-    /// ・案件 (PROJECT) の承認時は、関連づいているすべての品目 (ITM_TBL)・図面 (DRW_TBL)・BOM (BOM_TBL) を
-    ///   同一トランザクション (SharedTransactionContext) で一括承認します。
-    /// ・品目 (ITEM) / 図面 (DRAWING) 単体申請の承認時は、それぞれの対象レコードを承認します。
+    /// 3. ワークフロー最終承認 (VERIFIED -> APPROVED) 【疎結合 Hook パイプライン方式】
+    /// ・WorkflowCompleteCommand 本体は、品目承認・BOM承認・図面承認などの個別ロジックを一切ハードコードしていません。
+    /// ・WorkflowHookRegistry に登録された IWorkflowApprovalHook (ItemApprovalHook / BomApprovalHook / DrawingApprovalHook 等) を
+    ///   第1フェーズ（SharedTransactionContext 内の同一トランザクション承認）として順次呼び出します。
+    /// ・トランザクション Commit 成功後、第2フェーズ（完了後 Hook）として：
+    ///   1) 各ドメイン Hook の OnCommittedAsync（品目名称 ItmNm・図面名称 Title を使ったモックメール送信）
+    ///   2) WindowsNotificationPostCommitHook（Windows OS のトースト通知呼び出し）
+    ///   を実行します。エラーによりロールバックした場合は完了後 Hook は呼ばれません。
     /// </summary>
-    public async Task<object> ExecuteAsync(
+    public async Task<WorkflowApproveOParam> ExecuteAsync(
         StranglerDbContext db,
         string wfId,
         string userId,
@@ -293,9 +297,6 @@ public class WorkflowCompleteCommand
 
         PrjTblEntity? prj = null;
         string? originalPrjStatus = null;
-        var approvedItems = new List<object>();
-        var approvedDrawings = new List<DrawingRecord>();
-        BomRecord? approvedBom = null;
 
         string targetType = string.IsNullOrWhiteSpace(wf.TargetType) ? "PROJECT" : wf.TargetType.ToUpperInvariant();
         string targetId = string.IsNullOrWhiteSpace(wf.TargetId) ? wf.PrjId : wf.TargetId;
@@ -324,9 +325,25 @@ public class WorkflowCompleteCommand
             db.SaveChanges();
         });
 
+        var hookContext = new WorkflowApprovalHookContext
+        {
+            Db = db,
+            TxContext = txContext,
+            Workflow = wf,
+            Project = prj,
+            TargetType = targetType,
+            TargetId = targetId,
+            UserId = userId,
+            UserName = userName,
+            OrgName = orgName,
+            ConfiguredProvider = configuredProvider,
+            ConnectionString = connectionString,
+            SimulateDrawingError = simulateDrawingError
+        };
+
         try
         {
-            // Step 1: ワークフロー (WF_TBL) を APPROVED に更新
+            // Step 1: ワークフロー (WF_TBL) および案件本体 (PRJ_TBL) のステータスを APPROVED に更新
             if (string.IsNullOrWhiteSpace(wf.VerifiedBy))
             {
                 wf.VerifiedBy = $"{userName} ({userId}) [自動照査]";
@@ -337,131 +354,56 @@ public class WorkflowCompleteCommand
             wf.ApprovedOrg = orgName;
             wf.ApprovedAtUtc = DateTime.UtcNow;
 
-            var legacyItemCmd = new LegacyItemQueryCommand();
-            var bomCommand = new BomApprovalCommand();
-            var drawingCommand = new DrawingApprovalCommand();
-
             if (targetType == "PROJECT" && prj != null)
             {
-                // 案件承認：案件本体 + 関連する全ての品目 (ITM_TBL) + BOM + 関連する全ての図面 (DRW_TBL) を一括承認
-                prj.PrjStatus = "APPROVED (案件・関連品目・図面一括承認済)";
+                prj.PrjStatus = "APPROVED (案件・関連Hook一括承認済)";
                 prj.ApprovedBy = $"{userName} ({userId})";
                 prj.UpdatedAtUtc = DateTime.UtcNow;
-
-                var itemCodes = (prj.TargetItmCd ?? string.Empty)
-                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-                foreach (var code in itemCodes)
-                {
-                    var modernItem = await db.ItmTbl.FirstOrDefaultAsync(i => i.ItmCd.ToLower() == code.ToLower());
-                    if (modernItem != null)
-                    {
-                        string prevItemStatus = modernItem.ApprovalStatus;
-                        string? prevItemBy = modernItem.ApprovedBy;
-                        DateTime? prevItemAt = modernItem.ApprovedAtUtc;
-
-                        txContext.RegisterRollbackAction(() =>
-                        {
-                            modernItem.ApprovalStatus = prevItemStatus;
-                            modernItem.ApprovedBy = prevItemBy;
-                            modernItem.ApprovedAtUtc = prevItemAt;
-                            db.SaveChanges();
-                        });
-
-                        modernItem.ApprovalStatus = "APPROVED (案件連動承認済)";
-                        modernItem.ApprovedBy = $"{userName} ({userId})";
-                        modernItem.ApprovedAtUtc = DateTime.UtcNow;
-                    }
-
-                    var legItem = legacyItemCmd.ApproveItemInTransaction(txContext, configuredProvider, connectionString, code, userId, userName);
-                    approvedItems.Add((object?)modernItem ?? (object?)legItem ?? new { ItmCd = code, ApprovalStatus = "APPROVED" });
-                }
-
-                await db.SaveChangesAsync();
-                txContext.ExecutionSteps.Add($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ModernBff.MDL] 案件 '{prj.PrjId}' および関連品目 ({prj.TargetItmCd}) を承認更新 (Tx={txContext.TransactionId})");
-
-                // レガシーBOM承認
-                if (!string.IsNullOrWhiteSpace(prj.LinkedBomNo))
-                {
-                    approvedBom = bomCommand.Execute(txContext, prj.LinkedBomNo, userId, userName, orgName);
-                }
-
-                // レガシー図面承認（複数図面関連付けにも対応）
-                var drawingNos = (prj.LinkedDrawingNo ?? string.Empty)
-                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-                foreach (var drwNo in drawingNos)
-                {
-                    var updatedDrw = drawingCommand.Execute(
-                        txContext,
-                        drwNo,
-                        prj.LinkedBomNo,
-                        userId,
-                        userName,
-                        orgName,
-                        simulateError: simulateDrawingError);
-                    if (updatedDrw != null)
-                    {
-                        approvedDrawings.Add(updatedDrw);
-                    }
-                }
-            }
-            else if (targetType == "ITEM")
-            {
-                // 品目単体ワークフロー承認
-                var modernItem = await db.ItmTbl.FirstOrDefaultAsync(i => i.ItmCd.ToLower() == targetId.ToLower());
-                if (modernItem != null)
-                {
-                    modernItem.ApprovalStatus = "APPROVED (品目承認済)";
-                    modernItem.ApprovedBy = $"{userName} ({userId})";
-                    modernItem.ApprovedAtUtc = DateTime.UtcNow;
-                }
-                var legItem = legacyItemCmd.ApproveItemInTransaction(txContext, configuredProvider, connectionString, targetId, userId, userName);
-                approvedItems.Add((object?)modernItem ?? (object?)legItem ?? new { ItmCd = targetId, ApprovalStatus = "APPROVED" });
-                await db.SaveChangesAsync();
-            }
-            else if (targetType == "DRAWING")
-            {
-                // 図面単体ワークフロー承認
-                await db.SaveChangesAsync();
-                var updatedDrw = drawingCommand.Execute(
-                    txContext,
-                    targetId,
-                    "BOM-" + targetId,
-                    userId,
-                    userName,
-                    orgName,
-                    simulateError: simulateDrawingError);
-                if (updatedDrw != null)
-                {
-                    approvedDrawings.Add(updatedDrw);
-                }
             }
 
+            await db.SaveChangesAsync();
+            txContext.ExecutionSteps.Add(
+                $"[{DateTime.UtcNow:HH:mm:ss.fff}] [WorkflowCompleteCommand] ワークフロー '{wf.WfId}' ({targetType}:{targetId}) 本体を承認更新しました (Tx={txContext.TransactionId})");
+
+            // Step 2 (Phase 1): 登録されている承認ドメイン Hook (ItemApprovalHook / BomApprovalHook / DrawingApprovalHook 等) を
+            // 同一トランザクション内で疎結合に実行（新たな承認対象が増えてもここのコード修正は不要）
+            var executedDomainHooks = await WorkflowHookRegistry.ExecuteInTransactionHooksAsync(hookContext);
+
+            // Step 3: トランザクション Commit
             if (efTx != null)
             {
                 await efTx.CommitAsync();
             }
             txContext.Commit();
 
-            return new
+            // Step 4 (Phase 2): Commit 完了後 Hook の実行
+            // ・各ドメイン Hook の OnCommittedAsync（品目名称・図面名称を使ったモックメール送信）
+            // ・WindowsNotificationPostCommitHook（Windows OS トースト通知）
+            await WorkflowHookRegistry.ExecutePostCommitHooksAsync(hookContext, executedDomainHooks);
+
+            return new WorkflowApproveOParam
             {
-                Success = true,
+                IsSuccess = true,
+                ValidationPassed = true,
+                ExecutedCommandKey = CommandNames.WfApr,
+                ExecutedCommandName = nameof(WorkflowCompleteCommand),
+                AuthorizedUserId = userId,
+                AuthorizedUserName = userName,
                 TargetType = targetType,
                 TargetId = targetId,
                 TransactionResult = targetType == "PROJECT"
-                    ? "COMMITTED (案件承認に伴い、関連づいている品目・BOM・図面も単一トランザクションで一括承認コミットされました)"
-                    : $"COMMITTED ({targetType} '{targetId}' のワークフロー承認が完了しました)",
+                    ? "COMMITTED (疎結合Hookにより関連する品目・BOM・図面を同一トランザクションで一括承認し、完了後メール＆Windows通知Hookを実行しました)"
+                    : $"COMMITTED ({targetType} '{targetId}' の承認Hook・完了後メール＆Windows通知Hookを実行しました)",
                 TransactionId = txContext.TransactionId,
-                ExecutionLog = txContext.ExecutionSteps,
-                AfterState = new
-                {
-                    ModernWorkflow = wf,
-                    ModernProject = prj,
-                    ApprovedItems = approvedItems,
-                    LegacyBom = approvedBom,
-                    LegacyDrawings = approvedDrawings
-                }
+                ExecutedHooks = hookContext.ExecutedHooks,
+                ExecutionLog = txContext.ExecutionSteps.ToList(),
+                ApprovedEntities = hookContext.ApprovedEntities,
+                MockEmailsSent = hookContext.MockEmailsSent,
+                WindowsNotificationsSent = hookContext.WindowsNotificationsSent,
+                ModernWorkflow = wf,
+                ModernProject = prj,
+                LegacyBom = hookContext.ApprovedBom,
+                LegacyDrawings = hookContext.ApprovedDrawings
             };
         }
         catch (Exception ex)
@@ -472,22 +414,28 @@ public class WorkflowCompleteCommand
             }
             txContext.Rollback(ex.Message);
 
-            return new
+            return new WorkflowApproveOParam
             {
-                Success = false,
+                IsSuccess = false,
+                ValidationPassed = true,
+                ExecutedCommandKey = CommandNames.WfApr,
+                ExecutedCommandName = nameof(WorkflowCompleteCommand),
+                AuthorizedUserId = userId,
+                AuthorizedUserName = userName,
                 TargetType = targetType,
                 TargetId = targetId,
-                TransactionResult = "ROLLED_BACK (承認処理中にエラーが発生したため、案件・ワークフロー・品目・BOM・図面の変更をすべて一括ロールバックしました)",
+                TransactionResult = "ROLLED_BACK (承認Hook実行中にエラーが発生したため一括ロールバックしました。完了後メール・Windows通知Hookは抑止されました)",
                 TransactionId = txContext.TransactionId,
                 ErrorMessage = ex.Message,
-                ExecutionLog = txContext.ExecutionSteps,
-                AfterRollbackState = new
-                {
-                    ModernWorkflow = wf,
-                    ModernProject = prj,
-                    LegacyBom = prj != null ? LegacyApprovalStore.GetBom(prj.LinkedBomNo) : null,
-                    LegacyDrawings = prj != null ? LegacyApprovalStore.GetAllDrawings(prj.LinkedDrawingNo) : new List<DrawingRecord>()
-                }
+                ExecutedHooks = hookContext.ExecutedHooks,
+                ExecutionLog = txContext.ExecutionSteps.ToList(),
+                ApprovedEntities = new List<ApprovedEntityInfo>(),
+                MockEmailsSent = new List<MockEmailRecord>(),
+                WindowsNotificationsSent = new List<WindowsNotificationRecord>(),
+                ModernWorkflow = wf,
+                ModernProject = prj,
+                LegacyBom = prj != null ? LegacyApprovalStore.GetBom(prj.LinkedBomNo) : null,
+                LegacyDrawings = prj != null ? LegacyApprovalStore.GetAllDrawings(prj.LinkedDrawingNo) : new List<DrawingRecord>()
             };
         }
         finally
@@ -676,9 +624,8 @@ public class WorkflowApproveCommand : CommandBase<WorkflowApproveIParam, Workflo
             _iParam.ConnectionString,
             out _);
 
-        var wf = db.WfTbl.AsNoTracking().FirstOrDefault(w => w.WfId.ToLower() == _iParam.WfId.Trim().ToLower());
         var cmd = new WorkflowCompleteCommand();
-        _ = cmd.ExecuteAsync(
+        var result = cmd.ExecuteAsync(
             db,
             _iParam.WfId,
             _iParam.LoginUser.UserId,
@@ -688,19 +635,20 @@ public class WorkflowApproveCommand : CommandBase<WorkflowApproveIParam, Workflo
             _iParam.ConfiguredProvider,
             _iParam.ConnectionString).GetAwaiter().GetResult();
 
-        var updatedWf = db.WfTbl.AsNoTracking().FirstOrDefault(w => w.WfId.ToLower() == _iParam.WfId.Trim().ToLower()) ?? wf;
-        var updatedPrj = updatedWf != null && !string.IsNullOrWhiteSpace(updatedWf.PrjId)
-            ? db.PrjTbl.AsNoTracking().FirstOrDefault(p => p.PrjId.ToLower() == updatedWf.PrjId.ToLower())
-            : null;
-
-        _oParam.TargetType = updatedWf?.TargetType ?? "PROJECT";
-        _oParam.TargetId = updatedWf?.TargetId ?? _iParam.WfId;
-        _oParam.TransactionResult = _iParam.SimulateDrawingError
-            ? "ROLLED_BACK (エラーシミュレーションにより一括ロールバック)"
-            : "COMMITTED (案件・関連品目・BOM・図面を一括承認コミット)";
-        _oParam.ModernWorkflow = updatedWf;
-        _oParam.ModernProject = updatedPrj;
-        _oParam.LegacyBom = updatedPrj != null ? LegacyApprovalStore.GetBom(updatedPrj.LinkedBomNo) : null;
-        _oParam.LegacyDrawings = updatedPrj != null ? LegacyApprovalStore.GetAllDrawings(updatedPrj.LinkedDrawingNo) : new List<DrawingRecord>();
+        _oParam.IsSuccess = result.IsSuccess;
+        _oParam.ErrorMessage = result.ErrorMessage;
+        _oParam.TargetType = result.TargetType;
+        _oParam.TargetId = result.TargetId;
+        _oParam.TransactionResult = result.TransactionResult;
+        _oParam.TransactionId = result.TransactionId;
+        _oParam.ExecutedHooks = result.ExecutedHooks;
+        _oParam.ExecutionLog = result.ExecutionLog;
+        _oParam.ApprovedEntities = result.ApprovedEntities;
+        _oParam.MockEmailsSent = result.MockEmailsSent;
+        _oParam.WindowsNotificationsSent = result.WindowsNotificationsSent;
+        _oParam.ModernWorkflow = result.ModernWorkflow;
+        _oParam.ModernProject = result.ModernProject;
+        _oParam.LegacyBom = result.LegacyBom;
+        _oParam.LegacyDrawings = result.LegacyDrawings;
     }
 }

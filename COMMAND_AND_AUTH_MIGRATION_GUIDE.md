@@ -200,4 +200,47 @@ Dim oParam As ItemAppOParam = Await HttpUtil.ExecuteCommandAsync(
     "Client/execute")
 ```
 
+---
+
+## 7. ワークフロー最終承認の疎結合 Hook パイプライン（2フェーズ Hook：承認更新 ＆ 完了後メール・Windows 通知）
+
+[`WorkflowCompleteCommand`](file:///e:/MyJobs/VisualStudio/web/ModernBff.MDL/Commands/WorkflowAndProjectCommands.cs#L254-L429) 本体から品目承認・BOM承認・図面承認の埋め込みロジックを完全に分離し、[`WorkflowApprovalHooks.cs`](file:///e:/MyJobs/VisualStudio/web/ModernBff.MDL/Commands/WorkflowApprovalHooks.cs) による **2フェーズ Hook 方式**にリファクタリングしました。
+
+```mermaid
+flowchart TD
+    WF["WorkflowCompleteCommand.ExecuteAsync<br/>(個別ドメインのロジックを一切持たない)"]
+    subgraph Phase1["フェーズ1：同一トランザクション内承認 Hook (IWorkflowApprovalHook.ExecuteInTransactionAsync)"]
+        H1["ItemApprovalHook<br/>(品目 ITM_TBL 承認 + 品目名称 ItmNm 保持)"]
+        H2["BomApprovalHook<br/>(部品表 BOM 承認)"]
+        H3["DrawingApprovalHook<br/>(図面 DRW_TBL 承認 + 図面名称 Title 保持)"]
+        HX["将来追加される承認 Hook<br/>(WorkflowHookRegistry に登録するだけ)"]
+    end
+
+    COMMIT{"SharedTransactionContext<br/>Commit 成功?"}
+    RB["一括 Rollback<br/>(完了後メール・Windows通知は実行されない)"]
+
+    subgraph Phase2["フェーズ2：Commit 完了後 Hook (OnCommittedAsync & IWorkflowPostCommitHook)"]
+        M1["ItemApprovalHook.OnCommittedAsync<br/>品目名称 (ItmNm) を使ったモックメール送信"]
+        M2["BomApprovalHook.OnCommittedAsync<br/>BOM承認完了モックメール送信"]
+        M3["DrawingApprovalHook.OnCommittedAsync<br/>図面名称 (Title) を使ったモックメール送信"]
+        WIN["WindowsNotificationPostCommitHook<br/>Windows OS トースト通知 & WinForms NotifyIcon バルーン通知"]
+    end
+
+    WF --> Phase1
+    Phase1 --> COMMIT
+    COMMIT -->|"Yes (Commit)"| Phase2
+    COMMIT -->|"No (Exception)"| RB
+```
+
+### 設計のポイント
+1. **新たな承認対象が増えても [`WorkflowCompleteCommand`](file:///e:/MyJobs/VisualStudio/web/ModernBff.MDL/Commands/WorkflowAndProjectCommands.cs#L350-L363) の修正はゼロ（Open-Closed Principle）**
+   * 新しい承認対象（例：見積承認、購買承認など）が紐づいた場合は、[`IWorkflowApprovalHook`](file:///e:/MyJobs/VisualStudio/web/ModernBff.MDL/Commands/WorkflowApprovalHooks.cs#L58-L85) を実装したクラスを追加し、[`WorkflowHookRegistry.RegisterApprovalHook(...)`](file:///e:/MyJobs/VisualStudio/web/ModernBff.MDL/Commands/WorkflowApprovalHooks.cs#L430-L438) に登録するだけで動作します。
+2. **「品目名称 (`ItmNm`)」「図面名称 (`Title`)」を使うメール送信は各ドメイン Hook の `OnCommittedAsync` で呼び出し**
+   * 品目承認 Hook ([`ItemApprovalHook`](file:///e:/MyJobs/VisualStudio/web/ModernBff.MDL/Commands/WorkflowApprovalHooks.cs#L204-L296)) は自身が承認した品目の **品目名称 (`ItmNm`)** を知っており、図面承認 Hook ([`DrawingApprovalHook`](file:///e:/MyJobs/VisualStudio/web/ModernBff.MDL/Commands/WorkflowApprovalHooks.cs#L352-L426)) は自身が承認した図面の **図面名称 (`Title`)** を知っています。
+   * そのため、トランザクション Commit 後に各 Hook の `OnCommittedAsync` が呼ばれ、それぞれの名称を埋め込んだ完了メール（[`MockEmailNotificationService`](file:///e:/MyJobs/VisualStudio/web/ModernBff.MDL/Commands/WorkflowApprovalHooks.cs#L98-L132)）をモック送信します。
+3. **Windows 通知機能の呼び出し**
+   * サーバー／ローカル実行時は [`WindowsNotificationPostCommitHook`](file:///e:/MyJobs/VisualStudio/web/ModernBff.MDL/Commands/WorkflowApprovalHooks.cs#L397-L435)（[`WindowsOsNotificationService`](file:///e:/MyJobs/VisualStudio/web/ModernBff.MDL/Commands/WorkflowApprovalHooks.cs#L134-L195)）が Windows Runtime (`ToastNotificationManager`) のトースト通知を非同期実行します。
+   * さらに [`WinFormsClient/Form1.vb`](file:///e:/MyJobs/VisualStudio/web/WinFormsClient/Form1.vb#L395-L445) の `[WF.APR: 承認Hook+通知]` ボタン実行時には、`System.Windows.Forms.NotifyIcon` (`ShowBalloonTip`) によるネイティブ Windows タスクトレイ通知もポップアップ表示されます。
+
+
 

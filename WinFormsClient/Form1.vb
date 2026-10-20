@@ -171,6 +171,7 @@ Public Class Form1
             "/View/projects",
             "/View/workflow/approve?wfId=WF-9001&simulateDrawingError=false",
             "/View/workflow/approve?wfId=WF-9002&simulateDrawingError=true",
+            "/oauth/token?client_id=strangler-rest-api-client&client_secret=strangler-rest-api-secret-2026",
             "/api/status",
             "/api/items",
             "/api/drawings",
@@ -320,10 +321,29 @@ Public Class Form1
             Dim rawJson As String = Await response.Content.ReadAsStringAsync()
             Dim formattedJson As String = FormatJsonSafely(rawJson)
 
+            ' /oauth/token 実行時は返却された access_token を自動的に Authorization: Bearer ヘッダーにセット
+            If relativePath.StartsWith("/oauth/token", StringComparison.OrdinalIgnoreCase) AndAlso response.IsSuccessStatusCode Then
+                Try
+                    Using doc As JsonDocument = JsonDocument.Parse(rawJson)
+                        Dim tokenElem As JsonElement
+                        If doc.RootElement.TryGetProperty("access_token", tokenElem) AndAlso tokenElem.ValueKind = JsonValueKind.String Then
+                            Dim bearerToken As String = tokenElem.GetString()
+                            If Not String.IsNullOrWhiteSpace(bearerToken) Then
+                                SharedHttpClient.DefaultRequestHeaders.Authorization = New Headers.AuthenticationHeaderValue("Bearer", bearerToken)
+                            End If
+                        End If
+                    End Using
+                Catch
+                End Try
+            End If
+
+            Dim currentBearer As String = If(SharedHttpClient.DefaultRequestHeaders.Authorization?.Parameter, "(未取得 - /oauth/token で取得可能)")
+
             txtResult.Text =
                 $"Status : {CInt(response.StatusCode)} ({response.ReasonPhrase})" & Environment.NewLine &
                 $"URL    : {New Uri(SharedHttpClient.BaseAddress, relativePath.TrimStart("/"c))}" & Environment.NewLine &
                 $"Token  : {If(String.IsNullOrEmpty(_currentSessionToken), "(未ログイン)", _currentSessionToken)}" & Environment.NewLine &
+                $"Bearer : {currentBearer}" & Environment.NewLine &
                 $"Time   : {DateTime.Now:yyyy-MM-dd HH:mm:ss}" & Environment.NewLine &
                 New String("-"c, 70) & Environment.NewLine &
                 formattedJson

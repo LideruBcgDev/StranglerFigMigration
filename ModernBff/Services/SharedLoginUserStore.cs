@@ -198,4 +198,122 @@ public class SharedLoginUserStore
 
         return null;
     }
+
+    // ====================================================================================
+    // REST API (/api/.*) 用 OAuth 2.0 Client Credentials (/oauth/token) & Bearer 認証管理
+    // ====================================================================================
+    public const string OAuthRedisKeyPrefix = "StranglerOAuth:AccessToken:";
+
+    public List<OAuthApiClientConfig> GetOAuthApiClients()
+    {
+        var clients = _configuration.GetSection("Authentication:OAuthApiClients").Get<List<OAuthApiClientConfig>>();
+        if (clients == null || clients.Count == 0)
+        {
+            clients = new List<OAuthApiClientConfig>
+            {
+                new()
+                {
+                    ClientId = "strangler-rest-api-client",
+                    ClientSecret = "strangler-rest-api-secret-2026",
+                    ClientName = "外部システム連携用 REST API クライアント",
+                    Scopes = new List<string> { "api.read", "api.write" }
+                }
+            };
+        }
+        return clients;
+    }
+
+    public async Task<(OAuthAccessTokenRecord Record, bool StoredInRedis)> IssueOAuthAccessTokenAsync(
+        OAuthApiClientConfig client,
+        TimeSpan ttl)
+    {
+        var now = DateTime.UtcNow;
+        var record = new OAuthAccessTokenRecord
+        {
+            AccessToken = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9." + Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"),
+            TokenType = "Bearer",
+            ClientId = client.ClientId,
+            ClientName = client.ClientName,
+            Scopes = client.Scopes,
+            IssuedAtUtc = now,
+            ExpiresAtUtc = now.Add(ttl)
+        };
+
+        string key = $"{OAuthRedisKeyPrefix}{record.AccessToken}";
+        string json = JsonSerializer.Serialize(record);
+        FallbackMemoryStore[key] = json;
+
+        try
+        {
+            if (_redis.IsConnected)
+            {
+                var db = _redis.GetDatabase();
+                await db.StringSetAsync(key, json, ttl);
+                return (record, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Redis への OAuth access_token 保存に失敗しました。インメモリフォールバックを使用します。");
+        }
+
+        return (record, false);
+    }
+
+    public string? ExtractBearerToken(HttpContext httpContext)
+    {
+        if (httpContext.Request.Headers.TryGetValue("Authorization", out var authHeader))
+        {
+            string raw = authHeader.ToString().Trim();
+            if (raw.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                return raw.Substring("Bearer ".Length).Trim();
+            }
+        }
+        return null;
+    }
+
+    public async Task<(OAuthAccessTokenRecord? TokenRecord, string LookupSource)> ValidateBearerAccessTokenAsync(HttpContext httpContext)
+    {
+        string? bearerToken = ExtractBearerToken(httpContext);
+        if (string.IsNullOrWhiteSpace(bearerToken))
+        {
+            return (null, "Missing Authorization: Bearer <access_token> header");
+        }
+
+        string key = $"{OAuthRedisKeyPrefix}{bearerToken}";
+
+        try
+        {
+            if (_redis.IsConnected)
+            {
+                var db = _redis.GetDatabase();
+                var val = await db.StringGetAsync(key);
+                if (val.HasValue)
+                {
+                    var rec = JsonSerializer.Deserialize<OAuthAccessTokenRecord>(val.ToString());
+                    if (rec != null && rec.ExpiresAtUtc > DateTime.UtcNow)
+                    {
+                        return (rec, $"Valid OAuth2 Bearer Token in Redis ({key})");
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Redis からの OAuth access_token 検証に失敗しました。");
+        }
+
+        if (FallbackMemoryStore.TryGetValue(key, out var fallbackJson))
+        {
+            var rec = JsonSerializer.Deserialize<OAuthAccessTokenRecord>(fallbackJson);
+            if (rec != null && rec.ExpiresAtUtc > DateTime.UtcNow)
+            {
+                return (rec, $"Valid OAuth2 Bearer Token in MemoryFallback ({key})");
+            }
+        }
+
+        return (null, "Invalid or expired Bearer access_token");
+    }
 }
+

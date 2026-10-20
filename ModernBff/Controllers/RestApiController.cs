@@ -1,9 +1,9 @@
 using LegacyMvc.MDL.Commands;
-using LegacyMvc.MDL.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ModernBff.Data;
 using ModernBff.MDL.Commands;
+using ModernBff.Models;
 using ModernBff.Services;
 
 namespace ModernBff.Controllers;
@@ -11,8 +11,12 @@ namespace ModernBff.Controllers;
 /// <summary>
 /// 【1. モダン化した REST API コントローラー (AppRootUrl: /api/.*)】
 /// 元々 LegacyMvc に AppRootUrl = "/api/.*" として存在していた汎用 REST API 群を
-/// ModernBff (.NET 10 / .NET 9 Web API) へモダン化・移行したコントローラーです。
-/// ClientController (/Client/*) や ViewController (/View/*) とは独立した純粋な RESTful API として機能します。
+/// ModernBff へモダン化・移行したコントローラーです。
+///
+/// 【認証方式】
+/// 事前に `/oauth/token` に API 用の `client_id` と `client_secret` を指定して `access_token` を取得し、
+/// リクエストヘッダー `Authorization: Bearer <access_token>` を指定して呼び出す必要があります。
+/// （※ ViewController `/View/*` や ClientController `/Client/*` は人間のログインセッションを使うため、この Bearer トークン方式は `/api/.*` 専用です）
 /// </summary>
 [ApiController]
 [Route("api")]
@@ -36,30 +40,57 @@ public class RestApiController : ControllerBase
     }
 
     /// <summary>
+    /// Authorization: Bearer &lt;access_token&gt; ヘッダーを検証します。
+    /// 未指定または無効な場合は 401 Unauthorized レスポンスを返します。
+    /// </summary>
+    private async Task<(OAuthAccessTokenRecord? TokenRecord, string Source, IActionResult? UnauthorizedResult)> VerifyBearerTokenAsync()
+    {
+        var (tokenRecord, lookupSource) = await _loginUserStore.ValidateBearerAccessTokenAsync(HttpContext);
+        if (tokenRecord == null)
+        {
+            Response.Headers["WWW-Authenticate"] = "Bearer realm=\"ModernBff REST API (/api/.*)\", error=\"invalid_token\"";
+            var errResult = Unauthorized(new
+            {
+                error = "invalid_token",
+                error_description = "REST API (/api/.*) の実行には、事前に /oauth/token で client_id と client_secret を指定して取得した access_token を 'Authorization: Bearer <access_token>' ヘッダーに設定する必要があります。",
+                lookup_source = lookupSource,
+                how_to_obtain_token = new
+                {
+                    endpoint = "POST /oauth/token (または GET /oauth/token)",
+                    default_client_id = "strangler-rest-api-client",
+                    default_client_secret = "strangler-rest-api-secret-2026"
+                }
+            });
+            return (null, lookupSource, errResult);
+        }
+
+        return (tokenRecord, lookupSource, null);
+    }
+
+    /// <summary>
     /// GET /api/status
-    /// モダン化された REST API (/api/.*) の稼働状況と認証セッション情報を返します。
+    /// モダン化された REST API (/api/.*) の稼働状況と Bearer トークン検証結果を返します。
     /// </summary>
     [HttpGet("status")]
     public async Task<IActionResult> GetApiStatus()
     {
-        string? token = _loginUserStore.ExtractToken(HttpContext);
-        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var (oauthToken, tokenSource, unauthorized) = await VerifyBearerTokenAsync();
+        if (unauthorized != null) return unauthorized;
 
         return Ok(new
         {
             ApiCategory = "Modernized REST API (AppRootUrl: /api/.*)",
             Controller = nameof(RestApiController),
-            CurrentLoginUser = loginUser,
-            LoginUserLookupSource = loginSource,
+            AuthenticationScheme = "OAuth 2.0 Bearer AccessToken (/oauth/token)",
+            VerifiedOAuthClient = oauthToken,
+            TokenLookupSource = tokenSource,
             AvailableEndpoints = new[]
             {
-                "GET  /api/status",
-                "GET  /api/items",
-                "POST /api/items",
-                "GET  /api/drawings",
-                "POST /api/drawings",
-                "GET  /api/projects",
-                "POST /api/projects"
+                "POST /oauth/token (client_id + client_secret -> access_token 発行)",
+                "GET  /api/status (Bearer 必須)",
+                "GET  /api/items (Bearer 必須)",
+                "GET  /api/drawings (Bearer 必須)",
+                "GET  /api/projects (Bearer 必須)"
             },
             TimestampUtc = DateTime.UtcNow.ToString("O")
         });
@@ -67,13 +98,13 @@ public class RestApiController : ControllerBase
 
     /// <summary>
     /// GET /api/items?itmCd=ITM-001
-    /// REST API による品目 (ITM_TBL) リソース取得
+    /// REST API による品目 (ITM_TBL) リソース取得 (Authorization: Bearer 必須)
     /// </summary>
     [HttpGet("items")]
     public async Task<IActionResult> GetItems([FromQuery] string? itmCd = null)
     {
-        string? token = _loginUserStore.ExtractToken(HttpContext);
-        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var (oauthToken, tokenSource, unauthorized) = await VerifyBearerTokenAsync();
+        if (unauthorized != null) return unauthorized;
 
         using var db = DatabaseConfigurationExtensions.CreateWorkingContextWithFallback(
             _serviceProvider,
@@ -94,9 +125,10 @@ public class RestApiController : ControllerBase
         {
             ApiCategory = "Modernized REST API (/api/items)",
             Controller = nameof(RestApiController),
+            AuthenticationScheme = "OAuth 2.0 Bearer AccessToken",
+            VerifiedOAuthClient = oauthToken,
+            TokenLookupSource = tokenSource,
             DatabaseProviderStatus = dbProviderStatus,
-            CurrentLoginUser = loginUser,
-            LoginUserLookupSource = loginSource,
             Items = items,
             TimestampUtc = DateTime.UtcNow.ToString("O")
         });
@@ -104,13 +136,13 @@ public class RestApiController : ControllerBase
 
     /// <summary>
     /// GET /api/drawings?keyword=DRW
-    /// REST API による図面 (DRW_TBL) リソース取得
+    /// REST API による図面 (DRW_TBL) リソース取得 (Authorization: Bearer 必須)
     /// </summary>
     [HttpGet("drawings")]
     public async Task<IActionResult> GetDrawings([FromQuery] string? keyword = null)
     {
-        string? token = _loginUserStore.ExtractToken(HttpContext);
-        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var (oauthToken, tokenSource, unauthorized) = await VerifyBearerTokenAsync();
+        if (unauthorized != null) return unauthorized;
 
         var cmd = new LegacyDrawingCrudCommand();
         var drawings = cmd.Search(keyword);
@@ -119,8 +151,9 @@ public class RestApiController : ControllerBase
         {
             ApiCategory = "Modernized REST API (/api/drawings)",
             Controller = nameof(RestApiController),
-            CurrentLoginUser = loginUser,
-            LoginUserLookupSource = loginSource,
+            AuthenticationScheme = "OAuth 2.0 Bearer AccessToken",
+            VerifiedOAuthClient = oauthToken,
+            TokenLookupSource = tokenSource,
             Drawings = drawings,
             TimestampUtc = DateTime.UtcNow.ToString("O")
         });
@@ -128,13 +161,13 @@ public class RestApiController : ControllerBase
 
     /// <summary>
     /// GET /api/projects?keyword=PRJ
-    /// REST API による案件統合 (PRJ_TBL) リソース取得
+    /// REST API による案件統合 (PRJ_TBL) リソース取得 (Authorization: Bearer 必須)
     /// </summary>
     [HttpGet("projects")]
     public async Task<IActionResult> GetProjects([FromQuery] string? keyword = null)
     {
-        string? token = _loginUserStore.ExtractToken(HttpContext);
-        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var (oauthToken, tokenSource, unauthorized) = await VerifyBearerTokenAsync();
+        if (unauthorized != null) return unauthorized;
 
         using var db = DatabaseConfigurationExtensions.CreateWorkingContextWithFallback(
             _serviceProvider,
@@ -152,9 +185,10 @@ public class RestApiController : ControllerBase
         {
             ApiCategory = "Modernized REST API (/api/projects)",
             Controller = nameof(RestApiController),
+            AuthenticationScheme = "OAuth 2.0 Bearer AccessToken",
+            VerifiedOAuthClient = oauthToken,
+            TokenLookupSource = tokenSource,
             DatabaseProviderStatus = dbProviderStatus,
-            CurrentLoginUser = loginUser,
-            LoginUserLookupSource = loginSource,
             Data = data,
             TimestampUtc = DateTime.UtcNow.ToString("O")
         });

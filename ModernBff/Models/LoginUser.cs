@@ -99,3 +99,51 @@ public class AuthConfigUpdateDto
     [JsonPropertyName("defaultSsoProviderId")]
     public string? DefaultSsoProviderId { get; set; }
 }
+
+public class OAuthApiClientConfig
+{
+    public string ClientId { get; set; } = string.Empty;
+    public string ClientSecret { get; set; } = string.Empty;
+    public string ClientName { get; set; } = string.Empty;
+    public List<string> Scopes { get; set; } = new();
+}
+
+public class OAuthTokenRequest
+{
+    [JsonPropertyName("grant_type")]
+    public string GrantType { get; set; } = "client_credentials";
+
+    [JsonPropertyName("client_id")]
+    public string ClientId { get; set; } = string.Empty;
+
+    [JsonPropertyName("client_secret")]
+    public string ClientSecret { get; set; } = string.Empty;
+
+    [JsonPropertyName("scope")]
+    public string? Scope { get; set; }
+}
+
+public class OAuthAccessTokenRecord
+{
+    [JsonPropertyName("accessToken")]
+    public string AccessToken { get; set; } = string.Empty;
+
+    [JsonPropertyName("tokenType")]
+    public string TokenType { get; set; } = "Bearer";
+
+    [JsonPropertyName("clientId")]
+    public string ClientId { get; set; } = string.Empty;
+
+    [JsonPropertyName("clientName")]
+    public string ClientName { get; set; } = string.Empty;
+
+    [JsonPropertyName("scopes")]
+    public List<string> Scopes { get; set; } = new();
+
+    [JsonPropertyName("issuedAtUtc")]
+    public DateTime IssuedAtUtc { get; set; } = DateTime.UtcNow;
+
+    [JsonPropertyName("expiresAtUtc")]
+    public DateTime ExpiresAtUtc { get; set; }
+}
+

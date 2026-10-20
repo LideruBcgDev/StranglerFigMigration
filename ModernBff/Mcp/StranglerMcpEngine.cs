@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ModernBff.Data;
+using ModernBff.MDL.Commands;
 using ModernBff.Models;
 using ModernBff.Services;
 
@@ -38,18 +40,29 @@ public class JsonRpcResponse
 }
 
 /// <summary>
-/// 各実装方式の MCP コントローラーから共通で利用される MCP ツール・リソース実行エンジン。
-/// Redis 上の loginuser（ユーザ・組織・権限）の認識や、ModernBff / LegacyMvc のデータ取得を提供します。
+/// 各実装方式の MCP コントローラー (Streamable HTTP / SSE / Attribute Bridge) から共通で利用される MCP ツール・リソース実行エンジン。
+/// 3つの Controller すべてで共通の「案件統合管理 (PRJ_TBL)」「ワークフロー管理 (WF_TBL)」情報を返却します。
 /// </summary>
 public class StranglerMcpEngine
 {
     private readonly SharedLoginUserStore _loginUserStore;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly IConfiguration _configuration;
+    private readonly ILogger<StranglerMcpEngine> _logger;
 
-    public StranglerMcpEngine(SharedLoginUserStore loginUserStore, IHttpClientFactory httpClientFactory)
+    public StranglerMcpEngine(
+        SharedLoginUserStore loginUserStore,
+        IHttpClientFactory httpClientFactory,
+        IServiceProvider serviceProvider,
+        IConfiguration configuration,
+        ILogger<StranglerMcpEngine> logger)
     {
         _loginUserStore = loginUserStore;
         _httpClientFactory = httpClientFactory;
+        _serviceProvider = serviceProvider;
+        _configuration = configuration;
+        _logger = logger;
     }
 
     public object GetCapabilities(string transportMode) => new
@@ -64,7 +77,7 @@ public class StranglerMcpEngine
         serverInfo = new
         {
             name = $"StranglerFig-ModernBff-MCP ({transportMode})",
-            version = "1.0.0"
+            version = "1.1.0"
         }
     };
 
@@ -72,6 +85,19 @@ public class StranglerMcpEngine
     {
         tools = new object[]
         {
+            new
+            {
+                name = "get_projects_and_workflows",
+                description = "案件統合管理 (PRJ_TBL・関連品目 ITM_TBL・関連図面 DRW_TBL・BOM_TBL) およびワークフロー管理 (WF_TBL: 申請→照査→承認) の情報を一括取得します。",
+                inputSchema = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        keyword = new { type = "string", description = "案件ID・案件名・品目コード・図面番号での絞り込みキーワード (省略時は全件)" }
+                    }
+                }
+            },
             new
             {
                 name = "get_shared_loginuser",
@@ -110,6 +136,40 @@ public class StranglerMcpEngine
         }
     };
 
+    /// <summary>
+    /// 3つの MCP コントローラー (StreamableHttp / SSE / AttributeBridge) で共通の
+    /// 「案件統合管理 (PRJ_TBL + 品目・図面・BOM) ＆ ワークフロー管理 (WF_TBL: 申請→照査→承認)」情報を生成します。
+    /// </summary>
+    public async Task<object> GetProjectsAndWorkflowsDataAsync(
+        LoginUser? loginUser,
+        string loginSource,
+        string? keyword = null)
+    {
+        using var db = DatabaseConfigurationExtensions.CreateWorkingContextWithFallback(
+            _serviceProvider,
+            _configuration,
+            _logger,
+            out string dbProviderStatus);
+
+        string provider = _configuration["Database:Provider"] ?? "SqlServer";
+        string connStr = _configuration.GetConnectionString(provider) ?? string.Empty;
+
+        var prjCmd = new ProjectIntegrationCommand();
+        var integratedData = await prjCmd.GetIntegratedProjectsAsync(db, provider, connStr, keyword);
+
+        return new
+        {
+            Tool = "get_projects_and_workflows",
+            Description = "案件統合管理 (PRJ_TBL / 関連品目 ITM_TBL / 関連図面 DRW_TBL / BOM_TBL) および ワークフロー管理 (WF_TBL: 申請→照査→承認) 統合データ",
+            DatabaseProviderStatus = dbProviderStatus,
+            CurrentLoginUser = loginUser,
+            LoginUserLookupSource = loginSource,
+            FilterKeyword = keyword ?? "(全件)",
+            Data = integratedData,
+            TimestampUtc = DateTime.UtcNow.ToString("O")
+        };
+    }
+
     public async Task<JsonRpcResponse> HandleJsonRpcAsync(JsonRpcRequest request, HttpContext httpContext, string implementationStyle)
     {
         string? token = _loginUserStore.ExtractToken(httpContext);
@@ -132,7 +192,7 @@ public class StranglerMcpEngine
                 };
 
             case "tools/call":
-                string toolName = "get_customer_strangler";
+                string toolName = "get_projects_and_workflows";
                 JsonElement args = default;
 
                 if (request.Params is { ValueKind: JsonValueKind.Object } p)
@@ -186,6 +246,18 @@ public class StranglerMcpEngine
     {
         switch (toolName)
         {
+            case "get_projects_and_workflows":
+            case "get_projects":
+            case "get_workflows":
+                string? keyword = null;
+                if (arguments.ValueKind == JsonValueKind.Object &&
+                    arguments.TryGetProperty("keyword", out var kwProp) &&
+                    kwProp.ValueKind == JsonValueKind.String)
+                {
+                    keyword = kwProp.GetString();
+                }
+                return await GetProjectsAndWorkflowsDataAsync(loginUser, loginSource, keyword);
+
             case "get_shared_loginuser":
                 return new
                 {
@@ -223,7 +295,6 @@ public class StranglerMcpEngine
                     }
                 }
 
-                // 権限チェックデモ: legacy ソース呼び出し時に LegacyAccess ロール有無を判定
                 bool hasLegacyRole = loginUser?.Roles.Contains("LegacyAccess") == true || loginUser?.Roles.Contains("Admin") == true;
 
                 if (string.Equals(source, "legacy", StringComparison.OrdinalIgnoreCase))
@@ -284,21 +355,22 @@ public class StranglerMcpEngine
     public object GetImplementationComparisonMatrix() => new
     {
         Title = "MCP (Model Context Protocol) コントローラー実装方式 3パターンの比較",
+        SupportedSharedData = "3つの Controller すべてで同一の『案件統合管理 (PRJ_TBL + 品目・図面・BOM)』『ワークフロー管理 (WF_TBL: 申請→照査→承認)』情報を返却可能",
         Implementations = new object[]
         {
             new
             {
                 Pattern = "方式1: Streamable HTTP JSON-RPC 方式 (McpStreamableHttpController)",
-                Endpoint = "/api/bff/mcp/streamable",
+                Endpoint = "/api/bff/mcp/streamable (または /api/bff/mcp/streamable/projects-workflows)",
                 SpecVersion = "MCP 2025-03-26 Streamable HTTP 仕様準拠",
                 Transport = "単一エンドポイント HTTP POST (JSON-RPC 2.0: initialize / tools/list / tools/call)",
-                Pros = new[] { "最新のMCP標準仕様でありステートレス・スケールアウトが容易", "YARP などのリバースプロキシやロードバランサとの相性が最も良い", "WinForms の HttpClient からもシンプルに POST 呼び出し可能" },
+                Pros = new[] { "最新のMCP標準仕様でありステートレス・スケールアウトが容易", "YARP などのリバースプロキシやロードバランサとの相性が最も良い", "WinForms の HttpClient からもシンプルに POST/GET 呼び出し可能" },
                 Cons = new[] { "サーバープッシュ通知が不要な場合は JSON-RPC エンベロープの記述がやや冗長" }
             },
             new
             {
                 Pattern = "方式2: HTTP + SSE (Server-Sent Events) 双方向ストリーム方式 (McpSseController)",
-                Endpoint = "GET /api/bff/mcp/sse (ストリーム接続) / POST /api/bff/mcp/sse/message",
+                Endpoint = "GET /api/bff/mcp/sse (または /api/bff/mcp/sse/projects-workflows)",
                 SpecVersion = "MCP 2024-11-05 HTTP+SSE 仕様準拠",
                 Transport = "text/event-stream による長寿命ストリーム + メッセージ POST",
                 Pros = new[] { "サーバー側からクライアントへ非同期進捗やツール更新通知をリアルタイムにプッシュ可能", "既存の SSE 対応 MCP クライアント (Claude Desktop / Inspector 等) と直接接続しやすい" },
@@ -307,7 +379,7 @@ public class StranglerMcpEngine
             new
             {
                 Pattern = "方式3: Attribute / Reflection 自動公開・REST ブリッジ方式 (McpAttributeBridgeController)",
-                Endpoint = "GET /api/bff/mcp/bridge/tools / GET /api/bff/mcp/bridge/call/{toolName}",
+                Endpoint = "GET /api/bff/mcp/bridge/invoke/get_projects_and_workflows (または /api/bff/mcp/bridge/projects-workflows)",
                 SpecVersion = "C# カスタム属性 ([McpTool]) による宣言的公開 + REST/JSON-RPC ハイブリッド",
                 Transport = "GET/POST REST エンドポイント & リフレクションによるスキーマ自動生成",
                 Pros = new[] { "既存の ASP.NET Core Controller や Service メソッドに [McpTool] 属性を貼るだけで MCP ツール化できる", "ブラウザや WinForms の GET リクエストだけでも即座に動作確認・デバッグが可能" },

@@ -183,8 +183,12 @@ Public Class Form1
             "/api/bff/auth/providers",
             "/api/bff/auth/users",
             "/api/bff/auth/me",
-            "/api/bff/mcp/streamable?tool=get_customer_strangler&source=modern",
-            "/api/bff/mcp/sse?oneShot=true&customerId=1",
+            "/api/bff/mcp/streamable?tool=get_projects_and_workflows",
+            "/api/bff/mcp/sse?oneShot=true&tool=get_projects_and_workflows",
+            "/api/bff/mcp/bridge/invoke/get_projects_and_workflows",
+            "/api/bff/mcp/streamable/projects-workflows",
+            "/api/bff/mcp/sse/projects-workflows",
+            "/api/bff/mcp/bridge/projects-workflows",
             "/api/bff/mcp/bridge/compare"
         })
         cmbRoute.SelectedIndex = 0

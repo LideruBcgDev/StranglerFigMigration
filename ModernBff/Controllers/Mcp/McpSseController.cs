@@ -3,34 +3,41 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using ModernBff.Mcp;
+using ModernBff.Services;
 
 namespace ModernBff.Controllers.Mcp;
 
 /// <summary>
 /// 【実装方式2: HTTP + SSE (Server-Sent Events) ストリーム方式コントローラー】
 /// MCP 2024-11-05 仕様のトランスポート方式。
-/// GET /api/bff/mcp/sse で `text/event-stream` を開き、`event: endpoint` や `event: message` をサーバーからプッシュ配信します。
+/// GET /api/bff/mcp/sse で `text/event-stream` を開き、案件統合管理 (PRJ_TBL) とワークフロー (WF_TBL) の情報をプッシュ配信します。
 /// </summary>
 [ApiController]
 [Route("api/bff/mcp/sse")]
 public class McpSseController : ControllerBase
 {
     private readonly StranglerMcpEngine _mcpEngine;
+    private readonly SharedLoginUserStore _loginUserStore;
     private static readonly ConcurrentDictionary<string, TaskCompletionSource<string>> ActiveSseSessions = new();
 
-    public McpSseController(StranglerMcpEngine mcpEngine)
+    public McpSseController(StranglerMcpEngine mcpEngine, SharedLoginUserStore loginUserStore)
     {
         _mcpEngine = mcpEngine;
+        _loginUserStore = loginUserStore;
     }
 
     /// <summary>
     /// GET /api/bff/mcp/sse
     /// SSE (`text/event-stream`) でイベントをストリーム返却します。
-    /// `oneShot=true` (デフォルト) の場合は、WinFormsClient やブラウザで即座に結果を確認できるよう、
-    /// 接続確立イベント (endpoint) -> 初期化完了イベント -> loginuser ＆ 顧客取得ツール実行結果イベント を順番にストリーム出力して完了します。
+    /// デフォルト (`tool=get_projects_and_workflows`) では、案件統合管理・ワークフロー管理の統合情報をストリーム出力します。
     /// </summary>
     [HttpGet]
-    public async Task ConnectSse([FromQuery] bool oneShot = true, [FromQuery] int customerId = 1, CancellationToken cancellationToken = default)
+    public async Task ConnectSse(
+        [FromQuery] bool oneShot = true,
+        [FromQuery] string tool = "get_projects_and_workflows",
+        [FromQuery] string? keyword = null,
+        [FromQuery] int customerId = 1,
+        CancellationToken cancellationToken = default)
     {
         Response.Headers.ContentType = "text/event-stream; charset=utf-8";
         Response.Headers.CacheControl = "no-cache";
@@ -49,7 +56,7 @@ public class McpSseController : ControllerBase
             "方式2: HTTP + SSE ストリーム方式 (McpSseController)");
         await WriteSseEventAsync("message", JsonSerializer.Serialize(initRpc));
 
-        // 3. Redis 共有セッションの loginuser と顧客データを取得するツール実行結果をストリームプッシュ
+        // 3. 案件統合管理・ワークフロー情報 (または指定ツール) の実行結果をストリームプッシュ
         var callRpc = await _mcpEngine.HandleJsonRpcAsync(
             new JsonRpcRequest
             {
@@ -57,8 +64,8 @@ public class McpSseController : ControllerBase
                 Method = "tools/call",
                 Params = JsonSerializer.SerializeToElement(new
                 {
-                    name = "get_customer_strangler",
-                    arguments = new { customerId, source = "modern" }
+                    name = tool,
+                    arguments = new { keyword, customerId, source = "modern" }
                 })
             },
             HttpContext,
@@ -93,6 +100,25 @@ public class McpSseController : ControllerBase
                 ActiveSseSessions.TryRemove(mcpSessionId, out _);
             }
         }
+    }
+
+    /// <summary>
+    /// GET /api/bff/mcp/sse/projects-workflows?keyword=PRJ
+    /// 案件統合管理 (PRJ_TBL) とワークフロー (WF_TBL) の情報を返却します（3つのMCPコントローラーで同一データ）。
+    /// </summary>
+    [HttpGet("projects-workflows")]
+    public async Task<IActionResult> GetProjectsAndWorkflows([FromQuery] string? keyword = null)
+    {
+        string? token = _loginUserStore.ExtractToken(HttpContext);
+        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var sharedData = await _mcpEngine.GetProjectsAndWorkflowsDataAsync(loginUser, loginSource, keyword);
+
+        return Ok(new
+        {
+            ImplementationPattern = "方式2: HTTP + SSE ストリーム方式 (McpSseController)",
+            Controller = nameof(McpSseController),
+            SharedMcpData = sharedData
+        });
     }
 
     /// <summary>

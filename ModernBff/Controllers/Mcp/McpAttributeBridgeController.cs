@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Reflection;
-using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using ModernBff.Mcp;
 using ModernBff.Models;
@@ -10,7 +9,6 @@ namespace ModernBff.Controllers.Mcp;
 
 /// <summary>
 /// C# のメソッドに付与することで自動的に MCP ツールとして公開するためのカスタム属性。
-/// Semantic Kernel の [KernelFunction] や ModelContextProtocol SDK の [McpServerTool] と同じ宣言的アプローチです。
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]
 public class McpToolAttribute : Attribute
@@ -29,7 +27,7 @@ public class McpToolAttribute : Attribute
 /// 【実装方式3: Attribute / Reflection 自動公開・REST ブリッジ方式コントローラー】
 /// C# メソッドに `[McpTool]` 属性を付与するだけで、リフレクションによって自動的に
 /// MCP ツール一覧スキーマ生成とメソッド呼び出しディスパッチを行う方式です。
-/// 既存の ASP.NET Core コントローラー資産を最小限のコード変更で AI / MCP 対応させる場合に適しています。
+/// 案件統合管理 (PRJ_TBL) とワークフロー (WF_TBL) の情報を他の2つの MCP Controller と同じ形式で返却します。
 /// </summary>
 [ApiController]
 [Route("api/bff/mcp/bridge")]
@@ -60,11 +58,33 @@ public class McpAttributeBridgeController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/bff/mcp/bridge/invoke/{toolName}?customerId=1
+    /// GET /api/bff/mcp/bridge/projects-workflows?keyword=PRJ
+    /// 案件統合管理 (PRJ_TBL) とワークフロー (WF_TBL) の情報を返却します（3つのMCPコントローラーで同一データ）。
+    /// </summary>
+    [HttpGet("projects-workflows")]
+    public async Task<IActionResult> GetProjectsAndWorkflows([FromQuery] string? keyword = null)
+    {
+        string? token = _loginUserStore.ExtractToken(HttpContext);
+        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var sharedData = await _mcpEngine.GetProjectsAndWorkflowsDataAsync(loginUser, loginSource, keyword);
+
+        return Ok(new
+        {
+            ImplementationPattern = "方式3: Attribute / Reflection 自動公開・REST ブリッジ方式 (McpAttributeBridgeController)",
+            Controller = nameof(McpAttributeBridgeController),
+            SharedMcpData = sharedData
+        });
+    }
+
+    /// <summary>
+    /// GET /api/bff/mcp/bridge/invoke/{toolName}?customerId=1&keyword=PRJ
     /// [McpTool] 属性が付与されたメソッドをリフレクションで検索し、共有 loginuser を注入して直接実行します。
     /// </summary>
     [HttpGet("invoke/{toolName}")]
-    public async Task<IActionResult> InvokeTool(string toolName, [FromQuery] int customerId = 1)
+    public async Task<IActionResult> InvokeTool(
+        string toolName,
+        [FromQuery] int customerId = 1,
+        [FromQuery] string? keyword = null)
     {
         string? token = _loginUserStore.ExtractToken(HttpContext);
         var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
@@ -84,7 +104,25 @@ public class McpAttributeBridgeController : ControllerBase
         }
 
         var attr = method.GetCustomAttribute<McpToolAttribute>()!;
-        var result = method.Invoke(this, new object?[] { customerId, loginUser, loginSource });
+        var parameters = method.GetParameters();
+        var invokeArgs = new object?[parameters.Length];
+
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            var p = parameters[i];
+            if (p.ParameterType == typeof(LoginUser))
+                invokeArgs[i] = loginUser;
+            else if (string.Equals(p.Name, "loginSource", StringComparison.OrdinalIgnoreCase))
+                invokeArgs[i] = loginSource;
+            else if (string.Equals(p.Name, "keyword", StringComparison.OrdinalIgnoreCase))
+                invokeArgs[i] = keyword;
+            else if (string.Equals(p.Name, "customerId", StringComparison.OrdinalIgnoreCase))
+                invokeArgs[i] = customerId;
+            else
+                invokeArgs[i] = p.HasDefaultValue ? p.DefaultValue : null;
+        }
+
+        var result = method.Invoke(this, invokeArgs);
         if (result is Task<object> taskResult)
         {
             result = await taskResult;
@@ -103,6 +141,16 @@ public class McpAttributeBridgeController : ControllerBase
     // =========================================================================
     // 以下、[McpTool] 属性を貼るだけで自動認識・公開される MCP ツール群
     // =========================================================================
+
+    [McpTool("get_projects_and_workflows", "案件統合管理 (PRJ_TBL・関連品目 ITM_TBL・関連図面 DRW_TBL・BOM_TBL) およびワークフロー管理 (WF_TBL: 申請→照査→承認) の情報を一括取得します。")]
+    [NonAction]
+    public async Task<object> GetProjectsAndWorkflowsTool(
+        [Description("案件ID・案件名・品目コード・図面番号での絞り込みキーワード (省略時は全件)")] string? keyword,
+        LoginUser? loginUser,
+        string loginSource)
+    {
+        return await _mcpEngine.GetProjectsAndWorkflowsDataAsync(loginUser, loginSource, keyword);
+    }
 
     [McpTool("check_permission", "共有 loginuser の組織と権限ロールを検証し、ストラングラー移行先APIへのアクセス権限を判定します。")]
     [NonAction]
@@ -144,9 +192,9 @@ public class McpAttributeBridgeController : ControllerBase
             Organization = loginUser?.OrganizationName ?? "None",
             Modules = new object[]
             {
-                new { Module = "認証・ログイン (loginuser 発行)", Status = "Migrated to ModernBff (100%)", Backend = "ModernBff + Redis" },
-                new { Module = "顧客参照 API", Status = "Canary / Strangler Routing (50%)", Backend = "ModernBff or LegacyMvc" },
-                new { Module = "MCP AI エージェント連携", Status = "ModernBff Native (3方式実装済)", Backend = "ModernBff" }
+                new { Module = "認証・ログイン (loginuser 発行: USR_TBL / OIDC / SAML)", Status = "Migrated to ModernBff (100%)", Backend = "ModernBff + Redis" },
+                new { Module = "案件統合管理 (PRJ_TBL) & ワークフロー (WF_TBL)", Status = "ModernBff.MDL Native + LegacyMvc.MDL Transaction Link", Backend = "ModernBff.MDL + LegacyMvc.MDL" },
+                new { Module = "MCP AI エージェント連携 (案件統合・WF返却対応)", Status = "ModernBff Native (3方式すべてで同一データ返却)", Backend = "ModernBff" }
             }
         };
     }

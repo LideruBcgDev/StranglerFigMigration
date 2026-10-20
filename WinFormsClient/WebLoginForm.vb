@@ -21,12 +21,17 @@ Public Class WebLoginForm
 
     Public Sub New(gatewayBaseUrl As String)
         _loginUrl = gatewayBaseUrl.TrimEnd("/"c) & "/login?clientWebView=true"
-        InitializeComponent()
+        InitializeComponent("Web ログイン画面 (WebView2 - Gateway 経由 /login)")
     End Sub
 
-    Private Sub InitializeComponent()
-        Me.Text = "Web ログイン画面 (WebView2 - Gateway 経由 /login)"
-        Me.Size = New Size(600, 680)
+    Public Sub New(loginUrl As String, title As String)
+        _loginUrl = loginUrl
+        InitializeComponent(title)
+    End Sub
+
+    Private Sub InitializeComponent(Optional windowTitle As String = "Web ログイン画面 (WebView2)")
+        Me.Text = windowTitle
+        Me.Size = New Size(620, 700)
         Me.StartPosition = FormStartPosition.CenterParent
 
         lblStatus = New Label() With {
@@ -75,7 +80,7 @@ Public Class WebLoginForm
                     msgType = If(typeProp.GetString(), String.Empty)
                 End If
 
-                If msgType = "STRANGLER_LOGIN_SUCCESS" Then
+                If msgType = "STRANGLER_LOGIN_SUCCESS" OrElse msgType = "LEGACY_LOGIN_SUCCESS" Then
                     Dim payload As JsonElement = root.GetProperty("payload")
                     RawLoginResponseJson = JsonSerializer.Serialize(payload, New JsonSerializerOptions With {.WriteIndented = True})
 

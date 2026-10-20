@@ -25,6 +25,12 @@ Namespace Global.Common.APP
         ''' <summary>品目マスタ登録・更新コマンド ("ITM.SAV" -> ItemSaveCommand)</summary>
         Public Const ItmSav As String = "ITM.SAV"
 
+        ''' <summary>品目マスタ複製コマンド ("ITM.CPY" -> ItemDuplicateCommand)</summary>
+        Public Const ItmCpy As String = "ITM.CPY"
+
+        ''' <summary>品目マスタ改訂コマンド ("ITM.REV" -> ItemReviseCommand)</summary>
+        Public Const ItmRev As String = "ITM.REV"
+
         ''' <summary>図面マスタ検索コマンド ("DRW.SCH" -> DrawingSearchCommand)</summary>
         Public Const DrwSch As String = "DRW.SCH"
 

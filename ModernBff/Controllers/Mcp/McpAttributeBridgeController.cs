@@ -64,8 +64,7 @@ public class McpAttributeBridgeController : ControllerBase
     [HttpGet("projects-workflows")]
     public async Task<IActionResult> GetProjectsAndWorkflows([FromQuery] string? keyword = null)
     {
-        string? token = _loginUserStore.ExtractToken(HttpContext);
-        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserFromContextAsync(HttpContext);
         var sharedData = await _mcpEngine.GetProjectsAndWorkflowsDataAsync(loginUser, loginSource, keyword);
 
         return Ok(new
@@ -86,8 +85,8 @@ public class McpAttributeBridgeController : ControllerBase
         [FromQuery] int customerId = 1,
         [FromQuery] string? keyword = null)
     {
-        string? token = _loginUserStore.ExtractToken(HttpContext);
-        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserFromContextAsync(HttpContext);
+        string? token = loginUser?.SessionToken ?? _loginUserStore.ExtractToken(HttpContext);
 
         var method = typeof(McpAttributeBridgeController)
             .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)

@@ -53,6 +53,13 @@ public class ItmTblEntity
     [MaxLength(64)]
     public string ItmCd { get; set; } = string.Empty;
 
+    [Column("VER")]
+    public int Ver { get; set; } = 1;
+
+    [Column("REV")]
+    [MaxLength(16)]
+    public string Rev { get; set; } = "A";
+
     [Required]
     [Column("ITM_NM")]
     [MaxLength(128)]
@@ -238,6 +245,8 @@ public class StranglerDbContext : DbContext
                 new ItmTblEntity
                 {
                     ItmCd = "ITM-001",
+                    Ver = 1,
+                    Rev = "A",
                     ItmNm = "産業用スマートセンサー Type-A",
                     Category = "IoTデバイス",
                     UnitPrice = 48000m,
@@ -248,6 +257,8 @@ public class StranglerDbContext : DbContext
                 new ItmTblEntity
                 {
                     ItmCd = "ITM-002",
+                    Ver = 2,
+                    Rev = "B",
                     ItmNm = "エッジAIゲートウェイユニット Pro",
                     Category = "ネットワーク機器",
                     UnitPrice = 195000m,
@@ -258,6 +269,8 @@ public class StranglerDbContext : DbContext
                 new ItmTblEntity
                 {
                     ItmCd = "ITM-003",
+                    Ver = 1,
+                    Rev = "A",
                     ItmNm = "クラウド監視ライセンス (年間契約)",
                     Category = "ソフトウェア",
                     UnitPrice = 120000m,

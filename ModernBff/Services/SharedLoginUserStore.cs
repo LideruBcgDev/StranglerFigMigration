@@ -41,6 +41,12 @@ public class SharedLoginUserStore
         _overrideEnableNormalLogin ?? _configuration.GetValue<bool>("Authentication:enableNormalLogin", true);
 
     /// <summary>
+    /// StranglerFig:EnableRedisSession (False の場合は Redis セッション共有をバイパスし、インメモリのみで動作)
+    /// </summary>
+    public bool EnableRedisSession =>
+        _configuration.GetValue<bool>("StranglerFig:EnableRedisSession", true);
+
+    /// <summary>
     /// autoRedirectToIdpOnLogin 設定値 (True: ログイン画面を表示せずに直接 SAML/OIDC IdP へリダイレクト)
     /// </summary>
     public bool AutoRedirectToIdpOnLogin =>
@@ -108,6 +114,11 @@ public class SharedLoginUserStore
 
         FallbackMemoryStore[key] = json;
 
+        if (!EnableRedisSession)
+        {
+            return (false, key);
+        }
+
         try
         {
             if (_redis.IsConnected)
@@ -134,22 +145,25 @@ public class SharedLoginUserStore
 
         string key = $"{RedisKeyPrefix}{token}";
 
-        try
+        if (EnableRedisSession)
         {
-            if (_redis.IsConnected)
+            try
             {
-                var db = _redis.GetDatabase();
-                var redisValue = await db.StringGetAsync(key);
-                if (redisValue.HasValue)
+                if (_redis.IsConnected)
                 {
-                    var user = JsonSerializer.Deserialize<LoginUser>(redisValue.ToString());
-                    return (user, $"Redis ({key})");
+                    var db = _redis.GetDatabase();
+                    var redisValue = await db.StringGetAsync(key);
+                    if (redisValue.HasValue)
+                    {
+                        var user = JsonSerializer.Deserialize<LoginUser>(redisValue.ToString());
+                        return (user, $"Redis ({key})");
+                    }
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Redis からの loginuser 取得に失敗しました。");
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Redis からの loginuser 取得に失敗しました。");
+            }
         }
 
         if (FallbackMemoryStore.TryGetValue(key, out var fallbackJson))
@@ -167,6 +181,8 @@ public class SharedLoginUserStore
 
         string key = $"{RedisKeyPrefix}{token}";
         FallbackMemoryStore.TryRemove(key, out _);
+
+        if (!EnableRedisSession) return;
 
         try
         {
@@ -235,6 +251,7 @@ public class SharedLoginUserStore
             ClientId = client.ClientId,
             ClientName = client.ClientName,
             Scopes = client.Scopes,
+            AuthMethod = "OAuth2 Client Credentials",
             IssuedAtUtc = now,
             ExpiresAtUtc = now.Add(ttl)
         };
@@ -243,18 +260,75 @@ public class SharedLoginUserStore
         string json = JsonSerializer.Serialize(record);
         FallbackMemoryStore[key] = json;
 
-        try
+        if (EnableRedisSession)
         {
-            if (_redis.IsConnected)
+            try
             {
-                var db = _redis.GetDatabase();
-                await db.StringSetAsync(key, json, ttl);
-                return (record, true);
+                if (_redis.IsConnected)
+                {
+                    var db = _redis.GetDatabase();
+                    await db.StringSetAsync(key, json, ttl);
+                    return (record, true);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Redis への OAuth access_token 保存に失敗しました。インメモリフォールバックを使用します。");
             }
         }
-        catch (Exception ex)
+
+        return (record, false);
+    }
+
+    /// <summary>
+    /// 【パターンA】USR_TBL ユーザー認証による OAuth 2.0 Password Grant Bearer トークン発行
+    /// AIツールや PowerShell からの呼び出し用に、USR_TBL のユーザー情報・権限を保持した access_token を発行します。
+    /// </summary>
+    public async Task<(OAuthAccessTokenRecord Record, bool StoredInRedis)> IssueUserPasswordAccessTokenAsync(
+        ModernBff.MDL.Data.UsrTblEntity usrRecord,
+        TimeSpan ttl)
+    {
+        var now = DateTime.UtcNow;
+        var roles = (usrRecord.RolesCsv ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+        var record = new OAuthAccessTokenRecord
         {
-            _logger.LogWarning(ex, "Redis への OAuth access_token 保存に失敗しました。インメモリフォールバックを使用します。");
+            AccessToken = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9." + Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"),
+            TokenType = "Bearer",
+            ClientId = "usr_tbl:" + usrRecord.UsrId,
+            ClientName = usrRecord.UsrNm,
+            UserId = usrRecord.UsrId,
+            UserName = usrRecord.UsrNm,
+            OrganizationCode = usrRecord.OrgCd,
+            OrganizationName = usrRecord.OrgNm,
+            Roles = roles,
+            Scopes = roles,
+            AuthMethod = "Password (USR_TBL Pattern A)",
+            IssuedAtUtc = now,
+            ExpiresAtUtc = now.Add(ttl)
+        };
+
+        string key = $"{OAuthRedisKeyPrefix}{record.AccessToken}";
+        string json = JsonSerializer.Serialize(record);
+        FallbackMemoryStore[key] = json;
+
+        if (EnableRedisSession)
+        {
+            try
+            {
+                if (_redis.IsConnected)
+                {
+                    var db = _redis.GetDatabase();
+                    await db.StringSetAsync(key, json, ttl);
+                    return (record, true);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Redis への OAuth access_token 保存に失敗しました。インメモリフォールバックを使用します。");
+            }
         }
 
         return (record, false);
@@ -283,25 +357,28 @@ public class SharedLoginUserStore
 
         string key = $"{OAuthRedisKeyPrefix}{bearerToken}";
 
-        try
+        if (EnableRedisSession)
         {
-            if (_redis.IsConnected)
+            try
             {
-                var db = _redis.GetDatabase();
-                var val = await db.StringGetAsync(key);
-                if (val.HasValue)
+                if (_redis.IsConnected)
                 {
-                    var rec = JsonSerializer.Deserialize<OAuthAccessTokenRecord>(val.ToString());
-                    if (rec != null && rec.ExpiresAtUtc > DateTime.UtcNow)
+                    var db = _redis.GetDatabase();
+                    var val = await db.StringGetAsync(key);
+                    if (val.HasValue)
                     {
-                        return (rec, $"Valid OAuth2 Bearer Token in Redis ({key})");
+                        var rec = JsonSerializer.Deserialize<OAuthAccessTokenRecord>(val.ToString());
+                        if (rec != null && rec.ExpiresAtUtc > DateTime.UtcNow)
+                        {
+                            return (rec, $"Valid OAuth2 Bearer Token in Redis ({key})");
+                        }
                     }
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Redis からの OAuth access_token 検証に失敗しました。");
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Redis からの OAuth access_token 検証に失敗しました。");
+            }
         }
 
         if (FallbackMemoryStore.TryGetValue(key, out var fallbackJson))
@@ -314,6 +391,24 @@ public class SharedLoginUserStore
         }
 
         return (null, "Invalid or expired Bearer access_token");
+    }
+
+    /// <summary>
+    /// HttpContext からログインユーザーを解決します。
+    /// 1. まず Authorization: Bearer &lt;access_token&gt; ヘッダーを検証（REST API / MCP / PowerShell 用）
+    /// 2. 次に StranglerAuthToken Cookie または X-Strangler-AuthToken ヘッダーを検証（従来のセッション用）
+    /// 3. 見つからない場合は未ログインを返却
+    /// </summary>
+    public async Task<(LoginUser? User, string Source)> GetLoginUserFromContextAsync(HttpContext httpContext)
+    {
+        var (oauthToken, oauthSource) = await ValidateBearerAccessTokenAsync(httpContext);
+        if (oauthToken != null)
+        {
+            return (oauthToken.ToLoginUser(), oauthSource);
+        }
+
+        string? token = ExtractToken(httpContext);
+        return await GetLoginUserAsync(token);
     }
 }
 

@@ -228,6 +228,15 @@ Namespace Global.LegacyMvc.PRM
         <MaxLength(64)>
         Public Property ItmCd As String = String.Empty
 
+        ''' <summary>バージョン番号 (例: 1, 2, 3...) - 複製時は 1 に初期化、改訂時は +1 カウントアップ</summary>
+        <Column("VER")>
+        Public Property Ver As Integer = 1
+
+        ''' <summary>リビジョン記号 (例: "A", "B", "C"...) - 複製時は "A" に初期化、改訂時は次記号へ更新</summary>
+        <Column("REV")>
+        <MaxLength(16)>
+        Public Property Rev As String = "A"
+
         <Required>
         <Column("ITM_NM")>
         <MaxLength(128)>
@@ -256,6 +265,125 @@ Namespace Global.LegacyMvc.PRM
 
         <Column("UPDATED_AT_UTC")>
         Public Property UpdatedAtUtc As DateTime = DateTime.UtcNow
+
+        Public Sub New()
+        End Sub
+
+        ''' <summary>
+        ''' 【AI駆動開発向け：全項目必須ファクトリ】
+        ''' カラム追加時にこのメソッドの引数を増やすことで、CreateDuplicateRecord / CreateRevisedRecord 側で
+        ''' 「引き継ぐか・初期化するか」の指定漏れがあればコンパイルエラーで確実に検出できます。
+        ''' </summary>
+        Public Shared Function CreateWithAllFields(
+            itmCd As String,
+            ver As Integer,
+            rev As String,
+            itmNm As String,
+            category As String,
+            unitPrice As Decimal,
+            stockQty As Integer,
+            approvalStatus As String,
+            approvedBy As String,
+            approvedAtUtc As DateTime?,
+            updatedAtUtc As DateTime) As ItmTblEntity
+
+            Return New ItmTblEntity With {
+                .ItmCd = itmCd,
+                .Ver = ver,
+                .Rev = rev,
+                .ItmNm = itmNm,
+                .Category = category,
+                .UnitPrice = unitPrice,
+                .StockQty = stockQty,
+                .ApprovalStatus = approvalStatus,
+                .ApprovedBy = approvedBy,
+                .ApprovedAtUtc = approvedAtUtc,
+                .UpdatedAtUtc = updatedAtUtc
+            }
+        End Function
+
+        ''' <summary>
+        ''' 【品目複製 (Duplicate) ドメインメソッド】
+        ''' 選択した品目 (Me) から別品目コードとして複製した新しい ItmTblEntity レコードを生成して返します。
+        ''' ・引き継ぐ項目: ItmNm (未指定時は末尾に "(複製)" 付与), Category, UnitPrice
+        ''' ・初期化する項目: ItmCd (新コード), Ver (= 1), Rev (= "A"), StockQty (= 0: 新規品目のため在庫0),
+        '''                  ApprovalStatus (= "DRAFT (複製・未申請)"), ApprovedBy (= Nothing), ApprovedAtUtc (= Nothing)
+        ''' </summary>
+        Public Function CreateDuplicateRecord(newItmCd As String, Optional newItmNm As String = Nothing) As ItmTblEntity
+            Dim resolvedCd As String = If(String.IsNullOrWhiteSpace(newItmCd), $"{Me.ItmCd}-COPY", newItmCd.Trim())
+            Dim resolvedNm As String = If(String.IsNullOrWhiteSpace(newItmNm), $"{Me.ItmNm} (複製)", newItmNm.Trim())
+
+            Return CreateWithAllFields(
+                itmCd:=resolvedCd,                      ' [変更] 新規品目コード
+                ver:=1,                                 ' [初期化] バージョンは 1 にリセット
+                rev:="A",                               ' [初期化] リビジョンは "A" にリセット
+                itmNm:=resolvedNm,                      ' [引継+加工] 品目名称
+                category:=Me.Category,                  ' [引継] カテゴリ
+                unitPrice:=Me.UnitPrice,                ' [引継] 単価
+                stockQty:=0,                            ' [初期化] 別品目のため実在庫数は 0 に初期化
+                approvalStatus:="DRAFT (複製・未申請)", ' [初期化] 未申請状態にリセット
+                approvedBy:=Nothing,                    ' [初期化] 承認者をクリア
+                approvedAtUtc:=Nothing,                 ' [初期化] 承認日時をクリア
+                updatedAtUtc:=DateTime.UtcNow           ' [更新] 現在日時
+            )
+        End Function
+
+        ''' <summary>
+        ''' 【品目改訂 (Revise) ドメインメソッド】
+        ''' 選択した品目 (Me) をベースに Ver / Rev をカウントアップした改訂後の ItmTblEntity レコードを生成して返します。
+        ''' ・引き継ぐ項目: ItmCd, ItmNm, Category, UnitPrice, StockQty (現品在庫を継承)
+        ''' ・更新する項目: Ver (= Me.Ver + 1), Rev (= 次リビジョン記号 "A"->"B" 等)
+        ''' ・初期化する項目: ApprovalStatus (= "DRAFT (改訂・未申請)"), ApprovedBy (= Nothing), ApprovedAtUtc (= Nothing)
+        ''' </summary>
+        Public Function CreateRevisedRecord(Optional customNextRev As String = Nothing) As ItmTblEntity
+            Dim nextVer As Integer = If(Me.Ver < 1, 1, Me.Ver) + 1
+            Dim nextRev As String = If(Not String.IsNullOrWhiteSpace(customNextRev), customNextRev.Trim(), NextRevisionSymbol(Me.Rev))
+
+            Return CreateWithAllFields(
+                itmCd:=Me.ItmCd,                        ' [引継] 同一品目コードを維持
+                ver:=nextVer,                           ' [更新] バージョンを +1 カウントアップ
+                rev:=nextRev,                           ' [更新] リビジョンを次記号 ("A" -> "B" 等) へ更新
+                itmNm:=Me.ItmNm,                        ' [引継] 品目名称
+                category:=Me.Category,                  ' [引継] カテゴリ
+                unitPrice:=Me.UnitPrice,                ' [引継] 単価
+                stockQty:=Me.StockQty,                  ' [引継] 在庫数は改訂でも引き継ぐ
+                approvalStatus:="DRAFT (改訂・未申請)", ' [初期化] 改訂に伴い再承認が必要なため未申請へ戻す
+                approvedBy:=Nothing,                    ' [初期化] 旧バージョンの承認者をクリア
+                approvedAtUtc:=Nothing,                 ' [初期化] 旧バージョンの承認日時をクリア
+                updatedAtUtc:=DateTime.UtcNow           ' [更新] 現在日時
+            )
+        End Function
+
+        ''' <summary>
+        ''' リビジョン記号をインクリメントします (例: "A" -> "B", "Rev.A" -> "Rev.B", "Z" -> "AA")
+        ''' </summary>
+        Public Shared Function NextRevisionSymbol(currentRev As String) As String
+            If String.IsNullOrWhiteSpace(currentRev) Then Return "A"
+            Dim trimmed As String = currentRev.Trim()
+            Dim prefix As String = String.Empty
+            Dim core As String = trimmed
+
+            If trimmed.StartsWith("Rev.", StringComparison.OrdinalIgnoreCase) Then
+                prefix = trimmed.Substring(0, 4)
+                core = trimmed.Substring(4).Trim()
+            End If
+
+            If core.Length = 1 AndAlso Char.IsLetter(core(0)) Then
+                Dim ch As Char = Char.ToUpperInvariant(core(0))
+                If ch < "Z"c Then
+                    Return prefix & ChrW(AscW(ch) + 1)
+                Else
+                    Return prefix & "AA"
+                End If
+            End If
+
+            Dim num As Integer = 0
+            If Integer.TryParse(core, num) Then
+                Return prefix & (num + 1).ToString()
+            End If
+
+            Return trimmed & "-R2"
+        End Function
     End Class
 
     Public Class LegacyItemQueryResult
@@ -319,6 +447,8 @@ Namespace Global.LegacyMvc.PRM
         Public Property ConfiguredProvider As String = "SqlServer"
         Public Property ConnectionString As String = String.Empty
         Public Property ItmCd As String = String.Empty
+        Public Property Ver As Integer = 1
+        Public Property Rev As String = "A"
         Public Property ItmNm As String = String.Empty
         Public Property Category As String = String.Empty
         Public Property UnitPrice As Decimal = 0D
@@ -329,6 +459,47 @@ Namespace Global.LegacyMvc.PRM
         Inherits OParamBase
 
         Public Property SavedItem As ItmTblEntity
+    End Class
+
+    ''' <summary>
+    ''' 2-B. "ITM.CPY" (品目複製) 用 IParam / OParam
+    ''' </summary>
+    Public Class ItemDuplicateIParam
+        Inherits IParamBase
+
+        Public Property ConfiguredProvider As String = "SqlServer"
+        Public Property ConnectionString As String = String.Empty
+        Public Property SourceItmCd As String = String.Empty
+        Public Property NewItmCd As String = String.Empty
+        Public Property NewItmNm As String = String.Empty
+    End Class
+
+    Public Class ItemDuplicateOParam
+        Inherits OParamBase
+
+        Public Property SourceItem As ItmTblEntity
+        Public Property DuplicatedItem As ItmTblEntity
+        Public Property FieldMappingSummary As String = String.Empty
+    End Class
+
+    ''' <summary>
+    ''' 2-C. "ITM.REV" (品目改訂) 用 IParam / OParam
+    ''' </summary>
+    Public Class ItemReviseIParam
+        Inherits IParamBase
+
+        Public Property ConfiguredProvider As String = "SqlServer"
+        Public Property ConnectionString As String = String.Empty
+        Public Property TargetItmCd As String = String.Empty
+        Public Property CustomNextRev As String = String.Empty
+    End Class
+
+    Public Class ItemReviseOParam
+        Inherits OParamBase
+
+        Public Property BeforeItemSnapshot As ItmTblEntity
+        Public Property RevisedItem As ItmTblEntity
+        Public Property FieldMappingSummary As String = String.Empty
     End Class
 
     ''' <summary>
@@ -392,6 +563,8 @@ Namespace Global.LegacyMvc.PRM
         Public Shared ReadOnly ItmApp As New CommandSpec(Of ItemAppIParam, ItemAppOParam)(CommandNames.ItmApp)
         Public Shared ReadOnly ItmSch As New CommandSpec(Of ItemSearchIParam, ItemSearchOParam)(CommandNames.ItmSch)
         Public Shared ReadOnly ItmSav As New CommandSpec(Of ItemSaveIParam, ItemSaveOParam)(CommandNames.ItmSav)
+        Public Shared ReadOnly ItmCpy As New CommandSpec(Of ItemDuplicateIParam, ItemDuplicateOParam)(CommandNames.ItmCpy)
+        Public Shared ReadOnly ItmRev As New CommandSpec(Of ItemReviseIParam, ItemReviseOParam)(CommandNames.ItmRev)
         Public Shared ReadOnly DrwSch As New CommandSpec(Of DrawingSearchIParam, DrawingSearchOParam)(CommandNames.DrwSch)
         Public Shared ReadOnly DrwSav As New CommandSpec(Of DrawingSaveIParam, DrawingSaveOParam)(CommandNames.DrwSav)
         Public Shared ReadOnly CusSch As New CommandSpec(Of CustomerQueryIParam, CustomerQueryOParam)(CommandNames.CusSch)

@@ -172,8 +172,8 @@ public class StranglerMcpEngine
 
     public async Task<JsonRpcResponse> HandleJsonRpcAsync(JsonRpcRequest request, HttpContext httpContext, string implementationStyle)
     {
-        string? token = _loginUserStore.ExtractToken(httpContext);
-        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserFromContextAsync(httpContext);
+        string? token = loginUser?.SessionToken ?? _loginUserStore.ExtractToken(httpContext);
 
         switch (request.Method)
         {

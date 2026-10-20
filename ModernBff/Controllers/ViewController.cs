@@ -516,6 +516,16 @@ public class ViewController : ControllerBase
             savParam.ConfiguredProvider = provider;
             savParam.ConnectionString = connStr;
         }
+        else if (cmd.IParam is ItemDuplicateIParam cpyParam && string.IsNullOrWhiteSpace(cpyParam.ConfiguredProvider))
+        {
+            cpyParam.ConfiguredProvider = provider;
+            cpyParam.ConnectionString = connStr;
+        }
+        else if (cmd.IParam is ItemReviseIParam revParam && string.IsNullOrWhiteSpace(revParam.ConfiguredProvider))
+        {
+            revParam.ConfiguredProvider = provider;
+            revParam.ConnectionString = connStr;
+        }
         else if (cmd.IParam is ProjectSearchIParam prjSchParam && string.IsNullOrWhiteSpace(prjSchParam.ConfiguredProvider))
         {
             prjSchParam.ConfiguredProvider = provider;

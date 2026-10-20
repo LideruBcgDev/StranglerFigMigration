@@ -11,28 +11,41 @@ Public Class Form1
     Inherits Form
 
     Private Shared ReadOnly GatewayBaseUrl As String = LoadGatewayBaseUrl()
+    Private Shared ReadOnly LegacyBaseUrl As String = LoadLegacyBaseUrl()
+    Private Shared ReadOnly LoginMode As String = LoadClientSetting("LoginMode", "Legacy")
+    Private Shared ReadOnly LegacyLoginUrl As String = LoadClientSetting("LegacyLoginUrl", "http://localhost:5001/LegacyLogin.aspx?clientWebView=true")
 
     ' 共通プロジェクト Common.APP の HttpClient ユーティリティを使用
     Public Shared ReadOnly HttpUtil As New StranglerHttpClientUtility(GatewayBaseUrl)
 
-    Private Shared Function LoadGatewayBaseUrl() As String
+    Private Shared Function LoadClientSetting(propertyName As String, defaultValue As String) As String
         Try
             Dim settingsPath As String = Path.Combine(AppContext.BaseDirectory, "client-settings.json")
             If File.Exists(settingsPath) Then
                 Dim json As String = File.ReadAllText(settingsPath)
                 Using doc As JsonDocument = JsonDocument.Parse(json)
                     Dim prop As JsonElement
-                    If doc.RootElement.TryGetProperty("GatewayBaseUrl", prop) AndAlso prop.ValueKind = JsonValueKind.String Then
-                        Dim url As String = prop.GetString()
-                        If Not String.IsNullOrWhiteSpace(url) Then
-                            Return If(url.EndsWith("/"), url, url & "/")
+                    If doc.RootElement.TryGetProperty(propertyName, prop) AndAlso prop.ValueKind = JsonValueKind.String Then
+                        Dim val As String = prop.GetString()
+                        If Not String.IsNullOrWhiteSpace(val) Then
+                            Return val
                         End If
                     End If
                 End Using
             End If
         Catch
         End Try
-        Return "http://localhost:5000/"
+        Return defaultValue
+    End Function
+
+    Private Shared Function LoadGatewayBaseUrl() As String
+        Dim url As String = LoadClientSetting("GatewayBaseUrl", "http://localhost:5000/")
+        Return If(url.EndsWith("/"), url, url & "/")
+    End Function
+
+    Private Shared Function LoadLegacyBaseUrl() As String
+        Dim url As String = LoadClientSetting("LegacyBaseUrl", "http://localhost:5001/")
+        Return If(url.EndsWith("/"), url, url & "/")
     End Function
 
     Private pnlAuth As Panel
@@ -276,7 +289,15 @@ Public Class Form1
     End Function
 
     Private Function ShowWebLoginModal() As Boolean
-        Using loginForm As New WebLoginForm(GatewayBaseUrl)
+        Dim isLegacyMode As Boolean = String.Equals(LoginMode, "Legacy", StringComparison.OrdinalIgnoreCase)
+        Dim loginDialogTitle As String = If(isLegacyMode,
+            "レガシー ログイン画面 (LegacyMvc - USR_TBL 認証)",
+            "Web ログイン画面 (WebView2 - Gateway 経由 /login)")
+
+        Using loginForm As WebLoginForm = If(isLegacyMode,
+            New WebLoginForm(LegacyLoginUrl, loginDialogTitle),
+            New WebLoginForm(GatewayBaseUrl))
+
             If loginForm.ShowDialog(Me) = DialogResult.OK AndAlso Not String.IsNullOrWhiteSpace(loginForm.SessionToken) Then
                 HttpUtil.SetLoginSession(loginForm.SessionToken, loginForm.AuthenticatedUser)
 
@@ -285,7 +306,8 @@ Public Class Form1
                 btnLogout.Enabled = True
 
                 txtResult.Text =
-                    "=== Web ログイン成功 (Common.APP.StranglerHttpClientUtility & Common.APP.LoginUser) ===" & Environment.NewLine &
+                    $"=== ログイン成功 ({If(isLegacyMode, "LegacyMvc レガシーログイン画面", "Gateway 共通 Web ログイン")}) ===" & Environment.NewLine &
+                    $"LoginMode : {LoginMode}" & Environment.NewLine &
                     $"loginuser : {loginForm.UserSummary}" & Environment.NewLine &
                     $"Token     : {HttpUtil.SessionToken}" & Environment.NewLine &
                     New String("-"c, 75) & Environment.NewLine &
@@ -452,7 +474,11 @@ Public Class Form1
     End Sub
 
     Private Sub btnOpenDrawingWeb_Click(sender As Object, e As EventArgs) Handles btnOpenDrawingWeb.Click
-        OpenBrowserUrl(GatewayBaseUrl.TrimEnd("/"c) & "/web/view/drawings?drw_no='drw004'")
+        If String.Equals(LoginMode, "Legacy", StringComparison.OrdinalIgnoreCase) Then
+            OpenBrowserUrl(LegacyBaseUrl.TrimEnd("/"c) & "/LegacyPortal.aspx")
+        Else
+            OpenBrowserUrl(GatewayBaseUrl.TrimEnd("/"c) & "/web/view/drawings?drw_no='drw004'")
+        End If
     End Sub
 
     Private Sub btnOpenProjectWeb_Click(sender As Object, e As EventArgs) Handles btnOpenProjectWeb.Click

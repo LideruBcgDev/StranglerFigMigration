@@ -20,16 +20,24 @@ builder.Services.AddDbContext<StranglerDbContext>(options =>
         out _);
 });
 
-// 1. AddStackExchangeRedisCache による分散キャッシュ・分散セッションのセットアップ
+// 1. 分散キャッシュ・分散セッションのセットアップ (疎結合モード時はインメモリキャッシュを使用)
+bool enableRedisSession = builder.Configuration.GetValue<bool>("StranglerFig:EnableRedisSession", false);
 var redisConnectionString = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379,abortConnect=false";
 
-builder.Services.AddStackExchangeRedisCache(options =>
+if (enableRedisSession)
 {
-    options.Configuration = redisConnectionString;
-    options.InstanceName = "StranglerSharedSession:";
-});
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnectionString;
+        options.InstanceName = "StranglerSharedSession:";
+    });
+}
+else
+{
+    builder.Services.AddDistributedMemoryCache();
+}
 
-// 2. 分散セッションの有効化
+// 2. セッションの有効化
 builder.Services.AddSession(options =>
 {
     options.Cookie.Name = ".StranglerFig.SharedSession";
@@ -39,8 +47,27 @@ builder.Services.AddSession(options =>
 });
 
 // 3. LegacyMvc と直接 Redis KVS を共有するための IConnectionMultiplexer & SharedLoginUserStore 登録
+// ※ 疎結合モード (StranglerFig:EnableRedisSession=false) 時は Redis 停止中も安全にインメモリへフォールバックします
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
-    ConnectionMultiplexer.Connect(redisConnectionString));
+{
+    try
+    {
+        var options = ConfigurationOptions.Parse(redisConnectionString);
+        options.AbortOnConnectFail = false;
+        options.ConnectTimeout = 1500;
+        return ConnectionMultiplexer.Connect(options);
+    }
+    catch
+    {
+        var options = new ConfigurationOptions
+        {
+            AbortOnConnectFail = false,
+            ConnectTimeout = 1000
+        };
+        options.EndPoints.Add("127.0.0.1", 6379);
+        return ConnectionMultiplexer.Connect(options);
+    }
+});
 builder.Services.AddSingleton<SharedLoginUserStore>();
 builder.Services.AddSingleton<ModernBff.Mcp.StranglerMcpEngine>();
 
@@ -84,13 +111,69 @@ static async Task ServeProtectedHtmlPageAsync(HttpContext context, WebApplicatio
 }
 
 // GET /login でブラウザおよび WinForms WebView2 用の Web ログイン画面を返す
-// autoRedirectToIdpOnLogin = true の場合はログイン画面を表示せず直接 SAML/OIDC IdP リダイレクト処理へ遷移する
+// ・疎結合モード (StranglerFig:EnableWebLoginPage=false): レガシーログイン画面の利用案内ページを表示
+// ・通常・統合モード: モダン統合ログイン画面 (login.html) を表示
 app.MapGet("/login", async context =>
 {
+    var config = context.RequestServices.GetRequiredService<IConfiguration>();
+    bool enableWebLogin = config.GetValue<bool>("StranglerFig:EnableWebLoginPage", false);
+    bool forceShowLogin = string.Equals(context.Request.Query["forceShowLogin"], "true", StringComparison.OrdinalIgnoreCase) ||
+                          string.Equals(context.Request.Query["force"], "true", StringComparison.OrdinalIgnoreCase);
+
+    // 疎結合モード時はレガシーログインの案内を表示（後から有効化・切り替え可能）
+    if (!enableWebLogin && !forceShowLogin)
+    {
+        string legacyUrl = config["LegacyMvc:BaseUrl"] ?? "http://localhost:5001/";
+        string legacyLoginUrl = $"{legacyUrl.TrimEnd('/')}/LegacyLogin.aspx";
+
+        string noticeHtml = $@"<!DOCTYPE html>
+<html lang=""ja"">
+<head>
+    <meta charset=""utf-8"" />
+    <title>Strangler Fig - 疎結合運用モード案内</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 40px 20px; }}
+        .card {{ max-width: 680px; margin: 0 auto; background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 28px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }}
+        .badge {{ display: inline-block; background: #10b981; color: #022c22; font-weight: bold; font-size: 12px; padding: 4px 10px; border-radius: 999px; margin-bottom: 12px; }}
+        h1 {{ font-size: 20px; margin-top: 0; color: #38bdf8; }}
+        p {{ font-size: 14px; line-height: 1.6; color: #cbd5e1; }}
+        .btn {{ display: inline-block; background: #2563eb; color: #fff; text-decoration: none; padding: 10px 18px; border-radius: 6px; font-weight: bold; margin-top: 8px; margin-right: 10px; }}
+        .btn-secondary {{ background: #475569; }}
+        .code-box {{ background: #090d16; border: 1px solid #1e293b; border-radius: 6px; padding: 12px; font-family: Consolas, monospace; font-size: 12.5px; color: #a5f3fc; overflow-x: auto; margin-top: 14px; }}
+    </style>
+</head>
+<body>
+    <div class=""card"">
+        <span class=""badge"">✓ Strangler Fig 疎結合運用中 (Decoupled Mode)</span>
+        <h1>レガシー独立運用 ＆ モダン REST API / MCP 特化</h1>
+        <p>
+            現在の構成方針に基づき、<strong>セッション共有 (Redis) や YarpGateway は介さず、LegacyMvc はそのまま独立稼働</strong>しています。<br />
+            ブラウザ・WinForms クライアントからの画面操作は、レガシー側のログイン画面をご利用ください。
+        </p>
+        <div style=""margin: 18px 0;"">
+            <a href=""{legacyLoginUrl}"" class=""btn"">レガシー ログイン画面へ進む (:5001)</a>
+            <a href=""/login?force=true"" class=""btn btn-secondary"">旧モダン検証画面を表示 (一時検証用)</a>
+        </div>
+        <p style=""font-size: 13px; color: #94a3b8;"">
+            ※ モダン側 (ModernBff) は AIツール / PowerShell 向けの <strong>REST API (/api/*)</strong> および <strong>MCP コントローラー (/api/bff/mcp/*)</strong> として直接稼働しています。<br />
+            認証は <code>POST /oauth/token (grant_type=password)</code> による Bearer トークンをご利用ください。
+        </p>
+        <div class=""code-box"">
+# PowerShell からの利用例 (パターンA: USR_TBL 認証)<br/>
+$t = Invoke-RestMethod -Uri 'http://localhost:5002/oauth/token' -Method Post -Body @{{ grant_type='password'; user_id='yamada'; password='pass123' }}<br/>
+Invoke-RestMethod -Uri 'http://localhost:5002/api/items' -Headers @{{ Authorization = ""Bearer $($t.access_token)"" }}
+        </div>
+    </div>
+</body>
+</html>";
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(noticeHtml);
+        return;
+    }
+
     var store = context.RequestServices.GetRequiredService<SharedLoginUserStore>();
     string returnUrl = context.Request.Query["returnUrl"].ToString();
     bool clientWebView = string.Equals(context.Request.Query["clientWebView"], "true", StringComparison.OrdinalIgnoreCase);
-    bool forceShowLogin = string.Equals(context.Request.Query["forceShowLogin"], "true", StringComparison.OrdinalIgnoreCase);
     bool queryAutoRedirect = string.Equals(context.Request.Query["autoRedirectToIdpOnLogin"], "true", StringComparison.OrdinalIgnoreCase);
 
     if (!forceShowLogin && (store.AutoRedirectToIdpOnLogin || queryAutoRedirect))

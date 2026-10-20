@@ -55,6 +55,7 @@
   <ItemGroup>
     <Content Include="Global.asax" />
     <Content Include="LegacyPortal.aspx" />
+    <Content Include="LegacyLogin.aspx" />
     <Content Include="Web.config" />
   </ItemGroup>
 

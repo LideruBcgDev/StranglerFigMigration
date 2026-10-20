@@ -237,7 +237,88 @@ Namespace Commands
                 _iParam.ItmNm,
                 _iParam.Category,
                 _iParam.UnitPrice,
-                _iParam.StockQty)
+                _iParam.StockQty,
+                _iParam.Ver,
+                _iParam.Rev)
+        End Sub
+    End Class
+
+    <CommandDefinition(CommandNames.ItmCpy, Db:=1, Description:="品目複製コマンド (ItemDuplicateCommand)")>
+    Public Class ItemDuplicateCommand
+        Inherits CommandBase(Of ItemDuplicateIParam, ItemDuplicateOParam)
+
+        Public Sub New()
+            MyBase.New(Nothing)
+        End Sub
+
+        Public Sub New(iParam As ItemDuplicateIParam)
+            MyBase.New(iParam)
+        End Sub
+
+        Public Overrides Sub Validate()
+            MyBase.Validate()
+            If String.IsNullOrWhiteSpace(_iParam.SourceItmCd) Then
+                Throw New ArgumentException("複製元の品目コード (SourceItmCd) は必須です。")
+            End If
+        End Sub
+
+        Protected Overrides Sub ExecuteCore()
+            Dim queryCmd As New LegacyItemQueryCommand()
+            Dim srcSnapshot As ItmTblEntity = Nothing
+            Dim duplicated As ItmTblEntity = queryCmd.DuplicateItem(
+                _iParam.ConfiguredProvider,
+                _iParam.ConnectionString,
+                _iParam.SourceItmCd,
+                _iParam.NewItmCd,
+                _iParam.NewItmNm,
+                srcSnapshot)
+
+            _oParam.SourceItem = srcSnapshot
+            _oParam.DuplicatedItem = duplicated
+            _oParam.FieldMappingSummary =
+                $"[複製 (ITM.CPY)] 元品目 '{srcSnapshot.ItmCd} (Ver={srcSnapshot.Ver}, Rev={srcSnapshot.Rev}, Stock={srcSnapshot.StockQty})' " &
+                $"-> 新品目 '{duplicated.ItmCd}' | " &
+                $"引継: [ItmNm='{duplicated.ItmNm}', Category='{duplicated.Category}', UnitPrice={duplicated.UnitPrice:0}] | " &
+                $"初期化: [Ver={duplicated.Ver}, Rev='{duplicated.Rev}', StockQty={duplicated.StockQty}, ApprovalStatus='{duplicated.ApprovalStatus}', ApprovedBy=Nothing]"
+        End Sub
+    End Class
+
+    <CommandDefinition(CommandNames.ItmRev, Db:=1, Description:="品目改訂コマンド (ItemReviseCommand)")>
+    Public Class ItemReviseCommand
+        Inherits CommandBase(Of ItemReviseIParam, ItemReviseOParam)
+
+        Public Sub New()
+            MyBase.New(Nothing)
+        End Sub
+
+        Public Sub New(iParam As ItemReviseIParam)
+            MyBase.New(iParam)
+        End Sub
+
+        Public Overrides Sub Validate()
+            MyBase.Validate()
+            If String.IsNullOrWhiteSpace(_iParam.TargetItmCd) Then
+                Throw New ArgumentException("改訂対象の品目コード (TargetItmCd) は必須です。")
+            End If
+        End Sub
+
+        Protected Overrides Sub ExecuteCore()
+            Dim queryCmd As New LegacyItemQueryCommand()
+            Dim beforeSnapshot As ItmTblEntity = Nothing
+            Dim revised As ItmTblEntity = queryCmd.ReviseItem(
+                _iParam.ConfiguredProvider,
+                _iParam.ConnectionString,
+                _iParam.TargetItmCd,
+                _iParam.CustomNextRev,
+                beforeSnapshot)
+
+            _oParam.BeforeItemSnapshot = beforeSnapshot
+            _oParam.RevisedItem = revised
+            _oParam.FieldMappingSummary =
+                $"[改訂 (ITM.REV)] 品目 '{revised.ItmCd}' | " &
+                $"更新: [Ver: {beforeSnapshot.Ver}->{revised.Ver}, Rev: '{beforeSnapshot.Rev}'->'{revised.Rev}'] | " &
+                $"引継: [ItmNm='{revised.ItmNm}', Category='{revised.Category}', UnitPrice={revised.UnitPrice:0}, StockQty={revised.StockQty}] | " &
+                $"初期化: [ApprovalStatus='{revised.ApprovalStatus}', ApprovedBy=Nothing]"
         End Sub
     End Class
 
@@ -329,6 +410,8 @@ Namespace Commands
             RegisterConfigCommand(CommandNames.ItmApp, "LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL", 1, "Config (<command name=""ITM.APP"" command=""LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL"" db=""1"">)")
             RegisterConfigCommand(CommandNames.ItmSch, "LegacyMvc.MDL.Commands.ItemSearchCommand,LegacyMvc.MDL", 1, "Config (<command name=""ITM.SCH"" ... db=""1"">)")
             RegisterConfigCommand(CommandNames.ItmSav, "LegacyMvc.MDL.Commands.ItemSaveCommand,LegacyMvc.MDL", 1, "Config (<command name=""ITM.SAV"" ... db=""1"">)")
+            RegisterConfigCommand(CommandNames.ItmCpy, "LegacyMvc.MDL.Commands.ItemDuplicateCommand,LegacyMvc.MDL", 1, "Config (<command name=""ITM.CPY"" ... db=""1"">)")
+            RegisterConfigCommand(CommandNames.ItmRev, "LegacyMvc.MDL.Commands.ItemReviseCommand,LegacyMvc.MDL", 1, "Config (<command name=""ITM.REV"" ... db=""1"">)")
             RegisterConfigCommand(CommandNames.DrwSch, "LegacyMvc.MDL.Commands.DrawingSearchCommand,LegacyMvc.MDL", 1, "Config (<command name=""DRW.SCH"" ... db=""1"">)")
             RegisterConfigCommand(CommandNames.DrwSav, "LegacyMvc.MDL.Commands.DrawingSaveCommand,LegacyMvc.MDL", 1, "Config (<command name=""DRW.SAV"" ... db=""1"">)")
             RegisterConfigCommand(CommandNames.CusSch, "LegacyMvc.MDL.Commands.CustomerQueryCommand,LegacyMvc.MDL", 1, "Config (<command name=""CUS.SCH"" ... db=""1"">)")

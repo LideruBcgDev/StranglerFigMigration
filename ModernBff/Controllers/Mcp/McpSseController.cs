@@ -109,8 +109,7 @@ public class McpSseController : ControllerBase
     [HttpGet("projects-workflows")]
     public async Task<IActionResult> GetProjectsAndWorkflows([FromQuery] string? keyword = null)
     {
-        string? token = _loginUserStore.ExtractToken(HttpContext);
-        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var (loginUser, loginSource) = await _loginUserStore.GetLoginUserFromContextAsync(HttpContext);
         var sharedData = await _mcpEngine.GetProjectsAndWorkflowsDataAsync(loginUser, loginSource, keyword);
 
         return Ok(new

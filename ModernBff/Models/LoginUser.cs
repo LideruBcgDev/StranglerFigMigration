@@ -90,6 +90,15 @@ public class OAuthTokenRequest
     [JsonPropertyName("client_secret")]
     public string ClientSecret { get; set; } = string.Empty;
 
+    [JsonPropertyName("username")]
+    public string? Username { get; set; }
+
+    [JsonPropertyName("user_id")]
+    public string? UserId { get; set; }
+
+    [JsonPropertyName("password")]
+    public string? Password { get; set; }
+
     [JsonPropertyName("scope")]
     public string? Scope { get; set; }
 }
@@ -111,10 +120,46 @@ public class OAuthAccessTokenRecord
     [JsonPropertyName("scopes")]
     public List<string> Scopes { get; set; } = new();
 
+    [JsonPropertyName("userId")]
+    public string? UserId { get; set; }
+
+    [JsonPropertyName("userName")]
+    public string? UserName { get; set; }
+
+    [JsonPropertyName("organizationCode")]
+    public string? OrganizationCode { get; set; }
+
+    [JsonPropertyName("organizationName")]
+    public string? OrganizationName { get; set; }
+
+    [JsonPropertyName("roles")]
+    public List<string> Roles { get; set; } = new();
+
+    [JsonPropertyName("authMethod")]
+    public string AuthMethod { get; set; } = "OAuth2 Client Credentials";
+
     [JsonPropertyName("issuedAtUtc")]
     public DateTime IssuedAtUtc { get; set; } = DateTime.UtcNow;
 
     [JsonPropertyName("expiresAtUtc")]
     public DateTime ExpiresAtUtc { get; set; }
+
+    public LoginUser ToLoginUser()
+    {
+        return new LoginUser
+        {
+            SessionToken = AccessToken,
+            UserId = !string.IsNullOrWhiteSpace(UserId) ? UserId : (!string.IsNullOrWhiteSpace(ClientId) ? ClientId : "oauth_client"),
+            UserName = !string.IsNullOrWhiteSpace(UserName) ? UserName : (!string.IsNullOrWhiteSpace(ClientName) ? ClientName : "OAuth API Client"),
+            OrganizationCode = !string.IsNullOrWhiteSpace(OrganizationCode) ? OrganizationCode : "API-SYSTEM",
+            OrganizationName = !string.IsNullOrWhiteSpace(OrganizationName) ? OrganizationName : "外部・AI連携システム",
+            Roles = Roles != null && Roles.Count > 0 ? Roles : (Scopes != null && Scopes.Count > 0 ? Scopes : new List<string> { "ApiConsumer" }),
+            AuthenticationMethod = AuthMethod,
+            IdentityProvider = "ModernBff OAuth (USR_TBL Pattern A)",
+            AuthenticatedAtUtc = IssuedAtUtc,
+            IsAuthenticated = true,
+            SourceChannel = $"OAuth2 Bearer Token ({AuthMethod})"
+        };
+    }
 }
 

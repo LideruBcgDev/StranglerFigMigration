@@ -255,12 +255,15 @@ public class ClientController : ControllerBase
             out string dbProviderStatus);
 
         string code = cmd.TypedIParam.ItmCd.Trim();
+        var savedLegacy = cmd.TypedOParam.SavedItem;
         var modernItem = await db.ItmTbl.FirstOrDefaultAsync(i => i.ItmCd.ToLower() == code.ToLower());
         if (modernItem == null)
         {
             modernItem = new ModernBff.MDL.Data.ItmTblEntity
             {
                 ItmCd = code,
+                Ver = savedLegacy?.Ver ?? (cmd.TypedIParam.Ver > 0 ? cmd.TypedIParam.Ver : 1),
+                Rev = savedLegacy?.Rev ?? (string.IsNullOrWhiteSpace(cmd.TypedIParam.Rev) ? "A" : cmd.TypedIParam.Rev.Trim()),
                 ItmNm = cmd.TypedIParam.ItmNm.Trim(),
                 Category = string.IsNullOrWhiteSpace(cmd.TypedIParam.Category) ? "一般品目" : cmd.TypedIParam.Category.Trim(),
                 UnitPrice = cmd.TypedIParam.UnitPrice,
@@ -272,6 +275,8 @@ public class ClientController : ControllerBase
         }
         else
         {
+            modernItem.Ver = savedLegacy?.Ver ?? (cmd.TypedIParam.Ver > 0 ? cmd.TypedIParam.Ver : modernItem.Ver);
+            modernItem.Rev = savedLegacy?.Rev ?? (string.IsNullOrWhiteSpace(cmd.TypedIParam.Rev) ? modernItem.Rev : cmd.TypedIParam.Rev.Trim());
             modernItem.ItmNm = cmd.TypedIParam.ItmNm.Trim();
             modernItem.Category = string.IsNullOrWhiteSpace(cmd.TypedIParam.Category) ? modernItem.Category : cmd.TypedIParam.Category.Trim();
             modernItem.UnitPrice = cmd.TypedIParam.UnitPrice;
@@ -431,6 +436,16 @@ public class ClientController : ControllerBase
             savParam.ConfiguredProvider = provider;
             savParam.ConnectionString = connStr;
         }
+        else if (cmd.IParam is ItemDuplicateIParam cpyParam && string.IsNullOrWhiteSpace(cpyParam.ConfiguredProvider))
+        {
+            cpyParam.ConfiguredProvider = provider;
+            cpyParam.ConnectionString = connStr;
+        }
+        else if (cmd.IParam is ItemReviseIParam revParam && string.IsNullOrWhiteSpace(revParam.ConfiguredProvider))
+        {
+            revParam.ConfiguredProvider = provider;
+            revParam.ConnectionString = connStr;
+        }
         else if (cmd.IParam is ProjectSearchIParam prjSchParam && string.IsNullOrWhiteSpace(prjSchParam.ConfiguredProvider))
         {
             prjSchParam.ConfiguredProvider = provider;
@@ -488,6 +503,39 @@ public class ClientController : ControllerBase
                 CommandName = entry?.Name ?? resolvedName,
                 Error = ex.Message
             });
+        }
+
+        // LegacyMvc.MDL で複製 (ITM.CPY)・改訂 (ITM.REV)・保存 (ITM.SAV) された品目を ModernBff.MDL の EF Core とも自動同期
+        LegacyMvc.PRM.ItmTblEntity? syncedItem = null;
+        if (cmd.OParam is ItemSaveOParam savOut) syncedItem = savOut.SavedItem;
+        else if (cmd.OParam is ItemDuplicateOParam cpyOut) syncedItem = cpyOut.DuplicatedItem;
+        else if (cmd.OParam is ItemReviseOParam revOut) syncedItem = revOut.RevisedItem;
+
+        if (syncedItem != null && !string.IsNullOrWhiteSpace(syncedItem.ItmCd))
+        {
+            using var syncDb = DatabaseConfigurationExtensions.CreateWorkingContextWithFallback(
+                _serviceProvider,
+                _configuration,
+                _logger,
+                out _);
+            string syncCode = syncedItem.ItmCd.Trim();
+            var mItem = await syncDb.ItmTbl.FirstOrDefaultAsync(i => i.ItmCd.ToLower() == syncCode.ToLower());
+            if (mItem == null)
+            {
+                mItem = new ModernBff.MDL.Data.ItmTblEntity { ItmCd = syncCode };
+                syncDb.ItmTbl.Add(mItem);
+            }
+            mItem.Ver = syncedItem.Ver;
+            mItem.Rev = syncedItem.Rev;
+            mItem.ItmNm = syncedItem.ItmNm;
+            mItem.Category = syncedItem.Category;
+            mItem.UnitPrice = syncedItem.UnitPrice;
+            mItem.StockQty = syncedItem.StockQty;
+            mItem.ApprovalStatus = syncedItem.ApprovalStatus;
+            mItem.ApprovedBy = syncedItem.ApprovedBy;
+            mItem.ApprovedAtUtc = syncedItem.ApprovedAtUtc;
+            mItem.UpdatedAtUtc = syncedItem.UpdatedAtUtc;
+            await syncDb.SaveChangesAsync();
         }
 
         return Ok(new

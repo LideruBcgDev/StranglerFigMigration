@@ -46,7 +46,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- サーバー側の実際のコマンド・DB処理を行う LegacyMvc.MDL (VB.NET) を参照 -->
+    <!-- 共通プロジェクト Common.APP / パラメタ定義 LegacyMvc.PRM / コマンド・DB処理 LegacyMvc.MDL を参照 -->
+    <ProjectReference Include="..\Common.APP\Common.APP.vbproj" />
+    <ProjectReference Include="..\LegacyMvc.PRM\LegacyMvc.PRM.vbproj" />
     <ProjectReference Include="..\LegacyMvc.MDL\LegacyMvc.MDL.vbproj" />
   </ItemGroup>
 

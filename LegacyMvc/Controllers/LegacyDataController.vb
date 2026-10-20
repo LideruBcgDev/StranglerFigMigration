@@ -5,6 +5,7 @@ Imports System.Web.Mvc
 Imports LegacyMvc.MDL.Commands
 Imports LegacyMvc.MDL.Data
 Imports LegacyMvc.Models
+Imports LegacyMvc.PRM
 Imports Newtonsoft.Json
 
 Namespace Controllers

@@ -120,3 +120,71 @@ flowchart TD
    * WinForms (`WebView2` ログイン済み) からはセッショントークン (`X-Strangler-AuthToken`) のみを自動送信し、WinForms 側で毎回 `command.IParam.LoginUser` をセットするコードを削除する（サーバー側でトークンから `IParam.LoginUser` を設定して `cmd.Validate()` を実行する）。
 3. **フェーズ3（新規機能の `ModernBff.MDL` 実装）**
    * 案件統合管理やワークフローなど `ModernBff.MDL` で新規に作る機能は、`IParamBase` に `Session` を持たせるレガシー方式は使わず、ステートレスな DTO + EF Core + 共通ログインユーザ (`SharedLoginUser`) でシンプルに実装する。
+
+---
+
+## 5. コマンド名指定ディスパッチ（`<command name="ITM.APP" ...>`）は BFF 移行後も同じ仕組みがよいか？もっと良い別案があるか？
+
+### 結論
+* **既存資産（WinForms や既存の `LegacyMvc.MDL` コマンド群）を無改修または最小改修で動かす目的であれば、BFF 移行後も同じコマンド名ディスパッチ窓口（`POST /Client/execute`・`POST /View/execute`）を残すのが非常に有効**です。
+* ただし、レガシーの **「Config（XML/JSON）に文字列でクラス名・アセンブリ名を手書きし、毎回リフレクション（`Activator.CreateInstance`）で生成する仕組み」には保守上の弱点がある**ため、BFF では以下の **【改善案1：属性自動登録＋ハイブリッドディスパッチャ】** および **【改善案2：新機能向けの型付きエンドポイント / MediatR パターン】** を組み合わせるのがベストプラクティスです。
+
+| 比較項目 | ① 従来方式：Config 文字列マッピング<br>`<command name="ITM.APP" command="...,LegacyMvc.MDL" db="1">` | ② 【改善案1（既存コマンド向け推奨）】<br>`<CommandDefinition("ITM.APP", Db:=1)>` 属性による自動検出＋DI | ③ 【改善案2（モダン新規画面向け推奨）】<br>機能別 REST/BFF エンドポイント（または MediatR） |
+| :--- | :--- | :--- | :--- |
+| **仕組み** | Config ファイルにコマンド名と型名を列挙し、`Type.GetType` で動的生成 | コマンドクラス自身に `<CommandDefinition("ITM.APP", Db:=1)>` を付与し、起動時にアセンブリスキャンで自動登録 | `/api/bff/workflow/approve` のように URL と HTTP メソッドで表現 |
+| **メリット** | ・既存の WinForms 呼び出しコード（`"ITM.APP"` 指定）を **1行も変えずに BFF へ移行可能** | ・**Config の記述漏れ・タイポ（実行時 `TypeLoadException`）がゼロになる**<br>・クラス名変更時にリファクタリングが効く<br>・WinForms 側の `"ITM.APP"` 呼び出し互換性も **100% 維持** | ・OpenAPI (Swagger) や MCP ツール定義が自動生成できる<br>・ブラウザ開発者ツール（Network タブ）でどの処理が呼ばれたか一目で分かる |
+| **デメリット** | ・クラス名変更や追加時に Config 文字列との二重管理が発生し、実行時までミスに気づけない | ・単一エンドポイント (`/Client/execute`) になるため、URL だけでは業務内容が見えにくい | ・既存の WinForms 通信ユーティリティ（コマンド名指定方式）からは呼び出し方の変更が必要 |
+
+> [!TIP]
+> **本ソリューションでの実装（ハイブリッド方式）**
+> [`CommandDispatcher`](file:///e:/MyJobs/VisualStudio/web/LegacyMvc.MDL/Commands/ICommandFramework.vb#L322-L401) では、**① Config（`Web.config` 相当の `<command name="ITM.APP" command="LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL" db="1">`）による登録** と、**② `<CommandDefinition("ITM.APP", Db:=1)>` 属性による自動検出** の両方に対応しています。
+
+---
+
+## 6. 共通プロジェクト構成（`Common.APP` / `LegacyMvc.PRM`）と `DirectCast` の仕組み
+
+循環参照を防ぎつつ、どのプロジェクトからでも共通クラスやパラメータ型を参照できるよう、以下の階層構造で分割しています。
+
+```mermaid
+flowchart BT
+    Common["Common.APP (VB.NET / netstandard2.0)<br/>・LoginUser<br/>・StranglerHttpClientUtility"]
+    PRM["LegacyMvc.PRM (VB.NET / netstandard2.0)<br/>・ICommand / IParamBase / OParamBase<br/>・BomRecord / DrawingRecord / ItmTblEntity<br/>・ItemAppIParam / ItemAppOParam 等"]
+    MDL["LegacyMvc.MDL (VB.NET / netstandard2.0)<br/>・CommandsLegacyApprovalStore (ITM.APP)<br/>・ItemSearchCommand (ITM.SCH) 等<br/>・CommandDispatcher"]
+    WinForms["WinFormsClient (VB.NET / net8.0-windows)<br/>・DirectCast(result, ItemAppOParam)"]
+    LegacyWeb["LegacyMvc (VB.NET / net481)"]
+    ModernMDL["ModernBff.MDL (C#)"]
+    ModernBff["ModernBff (C#)"]
+
+    PRM --> Common
+    MDL --> Common
+    MDL --> PRM
+    WinForms --> Common
+    WinForms --> PRM
+    LegacyWeb --> Common
+    LegacyWeb --> PRM
+    LegacyWeb --> MDL
+    ModernMDL --> Common
+    ModernMDL --> PRM
+    ModernMDL --> MDL
+    ModernBff --> Common
+    ModernBff --> PRM
+    ModernBff --> MDL
+    ModernBff --> ModernMDL
+```
+
+### `WinFormsClient` での `DirectCast` コード例 ([`Form1.vb`](file:///e:/MyJobs/VisualStudio/web/WinFormsClient/Form1.vb#L268-L283))
+```vb
+Dim iParam As New ItemAppIParam() With {
+    .CommandId = "ITM.APP",
+    .TargetItmCd = "ITM-001",
+    .TargetBomNo = "BOM-2026-001",
+    .TargetDrawingNo = "drw004",
+    .ActionMode = "QUERY_AND_APPROVE"
+}
+
+' Common.APP.StranglerHttpClientUtility で "ITM.APP" を送信し、
+' 返却された OParam を LegacyMvc.PRM.ItemAppOParam に DirectCast (Option Strict On 対応)
+Dim rawOParam As Object = Await HttpUtil.ExecuteCommandAsync("ITM.APP", iParam, "Client/execute")
+Dim oParam As ItemAppOParam = DirectCast(rawOParam, ItemAppOParam)
+```
+

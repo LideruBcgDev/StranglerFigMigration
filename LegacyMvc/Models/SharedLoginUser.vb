@@ -1,50 +1,21 @@
 Imports System
-Imports System.Collections.Generic
 Imports System.Runtime.InteropServices
 Imports System.Web
+Imports Common.APP
 Imports Newtonsoft.Json
 
 Namespace Models
 
     ''' <summary>
-    ''' ModernBff 側で発行され、Redis ("StranglerSession:LoginUser:{token}") を通じて
-    ''' LegacyMvc (.NET Framework 4.8.1 VB.NET) と共有されるログインユーザ情報 (loginuser)
+    ''' Common.APP.LoginUser を継承し、LegacyMvc (.NET Framework 4.8.1 VB.NET) で
+    ''' StackExchange.Redis から共有セッションを復元するヘルパーメソッドを提供するクラス。
     ''' </summary>
     Public Class SharedLoginUser
-        Public Const CookieName As String = "StranglerAuthToken"
-        Public Const HeaderName As String = "X-Strangler-AuthToken"
-        Public Const RedisKeyPrefix As String = "StranglerSession:LoginUser:"
-
-        <JsonProperty("sessionToken")>
-        Public Property SessionToken As String
-
-        <JsonProperty("userId")>
-        Public Property UserId As String
-
-        <JsonProperty("userName")>
-        Public Property UserName As String
-
-        <JsonProperty("organizationCode")>
-        Public Property OrganizationCode As String
-
-        <JsonProperty("organizationName")>
-        Public Property OrganizationName As String
-
-        <JsonProperty("roles")>
-        Public Property Roles As New List(Of String)()
-
-        <JsonProperty("authenticationMethod")>
-        Public Property AuthenticationMethod As String
-
-        <JsonProperty("identityProvider")>
-        Public Property IdentityProvider As String
-
-        <JsonProperty("authenticatedAtUtc")>
-        Public Property AuthenticatedAtUtc As DateTime
+        Inherits LoginUser
 
         ''' <summary>
         ''' HTTP リクエストのヘッダーまたは Cookie からトークンを取り出し、
-        ''' StackExchange.Redis から共有 loginuser を復元します。
+        ''' StackExchange.Redis から共有 loginuser (Common.APP.LoginUser) を復元します。
         ''' </summary>
         Public Shared Function ResolveFromRedis(request As HttpRequestBase, <Out> ByRef lookupStatus As String) As SharedLoginUser
             Dim token As String = request.Headers(HeaderName)

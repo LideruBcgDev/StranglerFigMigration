@@ -17,7 +17,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- ワークフロー完了時にレガシー側の BOM承認・図面承認コマンド (VB.NET) を同一トランザクションで直接呼び出すための参照 -->
+    <!-- 共通プロジェクト (Common.APP, LegacyMvc.PRM) とレガシーコマンド (LegacyMvc.MDL) を参照 -->
+    <ProjectReference Include="..\Common.APP\Common.APP.vbproj" />
+    <ProjectReference Include="..\LegacyMvc.PRM\LegacyMvc.PRM.vbproj" />
     <ProjectReference Include="..\LegacyMvc.MDL\LegacyMvc.MDL.vbproj" />
   </ItemGroup>
 

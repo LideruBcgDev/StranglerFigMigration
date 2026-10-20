@@ -3,23 +3,16 @@ Imports System.IO
 Imports System.Net
 Imports System.Net.Http
 Imports System.Text.Json
+Imports Common.APP
+Imports LegacyMvc.PRM
 
 Public Class Form1
     Inherits Form
 
     Private Shared ReadOnly GatewayBaseUrl As String = LoadGatewayBaseUrl()
-    Private Const AuthTokenHeaderName As String = "X-Strangler-AuthToken"
-    Private Const AuthCookieName As String = "StranglerAuthToken"
 
-    Private Shared ReadOnly SharedCookieContainer As New CookieContainer()
-    Private Shared ReadOnly SharedHttpHandler As New HttpClientHandler() With {
-        .CookieContainer = SharedCookieContainer,
-        .UseCookies = True
-    }
-    Private Shared ReadOnly SharedHttpClient As New HttpClient(SharedHttpHandler) With {
-        .BaseAddress = New Uri(GatewayBaseUrl),
-        .Timeout = TimeSpan.FromSeconds(10)
-    }
+    ' 共通プロジェクト Common.APP の HttpClient ユーティリティを使用
+    Public Shared ReadOnly HttpUtil As New StranglerHttpClientUtility(GatewayBaseUrl)
 
     Private Shared Function LoadGatewayBaseUrl() As String
         Try
@@ -41,8 +34,6 @@ Public Class Form1
         Return "http://localhost:5000/"
     End Function
 
-    Private _currentSessionToken As String = String.Empty
-
     Private pnlAuth As Panel
     Private lblLoginStatus As Label
     Private WithEvents btnOpenWebLogin As Button
@@ -50,6 +41,7 @@ Public Class Form1
 
     Private pnlScreens As FlowLayoutPanel
     Private WithEvents btnOpenItemWinForms As Button
+    Private WithEvents btnExecItmAppCommand As Button
     Private WithEvents btnOpenDrawingWeb As Button
     Private WithEvents btnOpenProjectWeb As Button
     Private WithEvents btnOpenWorkflowWeb As Button
@@ -64,23 +56,23 @@ Public Class Form1
     End Sub
 
     Private Sub InitializeComponent()
-        Me.Text = "Strangler Fig 移行検証クライアント (VB.NET WinForms + WebView2 共通ログイン)"
-        Me.Size = New Size(880, 640)
+        Me.Text = "Strangler Fig 移行検証クライアント (Common.APP + LegacyMvc.PRM 共通参照対応)"
+        Me.Size = New Size(940, 650)
         Me.StartPosition = FormStartPosition.CenterScreen
 
         ' 1. 上段: ログイン状態パネル
         pnlAuth = New Panel() With {
             .Location = New Point(16, 12),
-            .Size = New Size(832, 44),
+            .Size = New Size(892, 44),
             .BackColor = Color.FromArgb(241, 245, 249),
             .BorderStyle = BorderStyle.FixedSingle,
             .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         }
 
         lblLoginStatus = New Label() With {
-            .Text = "ログイン状態: 未ログイン (Webログインボタンから USR_TBL 認証で loginuser を取得してください)",
+            .Text = "ログイン状態: 未ログイン (Webログインボタンから USR_TBL 認証で Common.APP.LoginUser を取得してください)",
             .Location = New Point(10, 12),
-            .Size = New Size(560, 20),
+            .Size = New Size(620, 20),
             .ForeColor = Color.FromArgb(51, 65, 85),
             .AutoEllipsis = True,
             .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
@@ -88,7 +80,7 @@ Public Class Form1
 
         btnOpenWebLogin = New Button() With {
             .Text = "Webログイン画面を開く",
-            .Location = New Point(580, 7),
+            .Location = New Point(640, 7),
             .Size = New Size(155, 28),
             .BackColor = Color.FromArgb(37, 99, 235),
             .ForeColor = Color.White,
@@ -98,7 +90,7 @@ Public Class Form1
 
         btnLogout = New Button() With {
             .Text = "ログアウト",
-            .Location = New Point(742, 7),
+            .Location = New Point(802, 7),
             .Size = New Size(80, 28),
             .Enabled = False,
             .Anchor = AnchorStyles.Top Or AnchorStyles.Right
@@ -108,46 +100,60 @@ Public Class Form1
         pnlAuth.Controls.Add(btnOpenWebLogin)
         pnlAuth.Controls.Add(btnLogout)
 
-        ' 2. 業務画面ランチャーパネル (レガシーWinForms品目管理 / レガシーWeb図面管理 / モダンWeb案件統合 / モダンWebワークフロー)
+        ' 2. 業務画面ランチャー & コマンド名指定 ("ITM.APP") DirectCast 実行パネル
         pnlScreens = New FlowLayoutPanel() With {
             .Location = New Point(16, 64),
-            .Size = New Size(832, 38),
+            .Size = New Size(892, 38),
             .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         }
 
         btnOpenItemWinForms = New Button() With {
-            .Text = "[レガシー WinForms] 品目(ITM_TBL)管理",
-            .Size = New Size(215, 32),
+            .Text = "[WinForms] 品目(ITM_TBL)管理",
+            .Size = New Size(175, 32),
             .BackColor = Color.FromArgb(15, 118, 110),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
         }
 
-        btnOpenDrawingWeb = New Button() With {
-            .Text = "[レガシー Web] 図面(DRW_TBL)管理",
+        btnExecItmAppCommand = New Button() With {
+            .Text = "[Command: ITM.APP] DirectCast実行",
             .Size = New Size(195, 32),
+            .BackColor = Color.FromArgb(180, 83, 9),
+            .ForeColor = Color.White,
+            .FlatStyle = FlatStyle.Flat
+        }
+
+        btnOpenDrawingWeb = New Button() With {
+            .Text = "[レガシー Web] 図面(DRW_TBL)",
+            .Size = New Size(165, 32),
             .BackColor = Color.FromArgb(71, 85, 105),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
         }
 
         btnOpenProjectWeb = New Button() With {
-            .Text = "[モダン Web] 案件統合(PRJ_TBL)管理",
-            .Size = New Size(200, 32),
+            .Text = "[モダン Web] 案件統合(PRJ_TBL)",
+            .Size = New Size(170, 32),
             .BackColor = Color.FromArgb(29, 78, 216),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
         }
 
         btnOpenWorkflowWeb = New Button() With {
-            .Text = "[モダン Web] ワークフロー(申請→照査→承認)",
-            .Size = New Size(200, 32),
+            .Text = "[モダン Web] ワークフロー管理",
+            .Size = New Size(165, 32),
             .BackColor = Color.FromArgb(109, 40, 217),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
         }
 
-        pnlScreens.Controls.AddRange(New Control() {btnOpenItemWinForms, btnOpenDrawingWeb, btnOpenProjectWeb, btnOpenWorkflowWeb})
+        pnlScreens.Controls.AddRange(New Control() {
+            btnOpenItemWinForms,
+            btnExecItmAppCommand,
+            btnOpenDrawingWeb,
+            btnOpenProjectWeb,
+            btnOpenWorkflowWeb
+        })
 
         ' 3. Gateway 経由の API 検証エリア
         lblEndpoint = New Label() With {
@@ -158,11 +164,16 @@ Public Class Form1
 
         cmbRoute = New ComboBox() With {
             .Location = New Point(185, 112),
-            .Size = New Size(515, 28),
+            .Size = New Size(575, 28),
             .DropDownStyle = ComboBoxStyle.DropDownList,
             .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         }
         cmbRoute.Items.AddRange(New Object() {
+            "/Client/execute?commandName=ITM.APP",
+            "/Client/commands",
+            "/View/execute?commandName=ITM.APP",
+            "/legacy-api/Client/execute?commandName=ITM.APP",
+            "/legacy-api/View/execute?commandName=ITM.APP",
             "/Client/items",
             "/Client/items?loginUserId=blocked",
             "/Client/customer/1",
@@ -177,26 +188,20 @@ Public Class Form1
             "/api/drawings",
             "/api/projects",
             "/legacy-api/Client/items",
-            "/legacy-api/Client/items?loginUserId=blocked",
             "/legacy-api/View/drawings",
-            "/legacy-api/View/drawings?loginUserId=blocked",
             "/legacy-api/LegacyPortal.aspx",
             "/api/bff/auth/providers",
             "/api/bff/auth/users",
             "/api/bff/auth/me",
             "/api/bff/mcp/streamable?tool=get_projects_and_workflows",
             "/api/bff/mcp/sse?oneShot=true&tool=get_projects_and_workflows",
-            "/api/bff/mcp/bridge/invoke/get_projects_and_workflows",
-            "/api/bff/mcp/streamable/projects-workflows",
-            "/api/bff/mcp/sse/projects-workflows",
-            "/api/bff/mcp/bridge/projects-workflows",
-            "/api/bff/mcp/bridge/compare"
+            "/api/bff/mcp/bridge/invoke/get_projects_and_workflows"
         })
         cmbRoute.SelectedIndex = 0
 
         btnFetchData = New Button() With {
             .Text = "データ取得",
-            .Location = New Point(713, 110),
+            .Location = New Point(773, 110),
             .Size = New Size(135, 30),
             .Anchor = AnchorStyles.Top Or AnchorStyles.Right
         }
@@ -204,7 +209,7 @@ Public Class Form1
         ' 4. 下部: JSON 結果表示テキストボックス
         txtResult = New TextBox() With {
             .Location = New Point(16, 150),
-            .Size = New Size(832, 435),
+            .Size = New Size(892, 445),
             .Multiline = True,
             .ScrollBars = ScrollBars.Both,
             .ReadOnly = True,
@@ -223,13 +228,13 @@ Public Class Form1
     Protected Overrides Sub OnShown(e As EventArgs)
         MyBase.OnShown(e)
         ' クライアント起動時、未ログインであれば強制的に Web ログイン画面 (WebLoginForm) へ遷移
-        If String.IsNullOrWhiteSpace(_currentSessionToken) Then
+        If String.IsNullOrWhiteSpace(HttpUtil.SessionToken) Then
             EnsureLoggedInOrPrompt()
         End If
     End Sub
 
     Private Function EnsureLoggedInOrPrompt() As Boolean
-        If Not String.IsNullOrWhiteSpace(_currentSessionToken) Then
+        If Not String.IsNullOrWhiteSpace(HttpUtil.SessionToken) Then
             Return True
         End If
         Return ShowWebLoginModal()
@@ -238,21 +243,17 @@ Public Class Form1
     Private Function ShowWebLoginModal() As Boolean
         Using loginForm As New WebLoginForm(GatewayBaseUrl)
             If loginForm.ShowDialog(Me) = DialogResult.OK AndAlso Not String.IsNullOrWhiteSpace(loginForm.SessionToken) Then
-                _currentSessionToken = loginForm.SessionToken
-
-                SharedHttpClient.DefaultRequestHeaders.Remove(AuthTokenHeaderName)
-                SharedHttpClient.DefaultRequestHeaders.Add(AuthTokenHeaderName, _currentSessionToken)
-                SharedCookieContainer.Add(New Uri(GatewayBaseUrl), New Cookie(AuthCookieName, _currentSessionToken, "/"))
+                HttpUtil.SetLoginSession(loginForm.SessionToken, loginForm.AuthenticatedUser)
 
                 lblLoginStatus.Text = $"ログイン中: {loginForm.UserSummary}"
                 lblLoginStatus.ForeColor = Color.FromArgb(5, 150, 105)
                 btnLogout.Enabled = True
 
                 txtResult.Text =
-                    "=== Web ログイン成功 (WebView2 -> ModernBff 認証 -> Redis 共有セッション) ===" & Environment.NewLine &
+                    "=== Web ログイン成功 (Common.APP.StranglerHttpClientUtility & Common.APP.LoginUser) ===" & Environment.NewLine &
                     $"loginuser : {loginForm.UserSummary}" & Environment.NewLine &
-                    $"Token     : {_currentSessionToken}" & Environment.NewLine &
-                    New String("-"c, 70) & Environment.NewLine &
+                    $"Token     : {HttpUtil.SessionToken}" & Environment.NewLine &
+                    New String("-"c, 75) & Environment.NewLine &
                     loginForm.RawLoginResponseJson
                 Return True
             End If
@@ -260,9 +261,60 @@ Public Class Form1
         Return False
     End Function
 
+    ''' <summary>
+    ''' 【コマンド名指定 ("ITM.APP") + LegacyMvc.PRM.ItemAppOParam への DirectCast 検証】
+    ''' &lt;command name="ITM.APP" command="LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL" db="1"&gt;
+    ''' </summary>
+    Private Async Sub btnExecItmAppCommand_Click(sender As Object, e As EventArgs) Handles btnExecItmAppCommand.Click
+        If Not EnsureLoggedInOrPrompt() Then Return
+
+        Try
+            Dim iParam As New ItemAppIParam() With {
+                .CommandId = "ITM.APP",
+                .TargetItmCd = "ITM-001",
+                .TargetBomNo = "BOM-2026-001",
+                .TargetDrawingNo = "drw004",
+                .ActionMode = "QUERY_AND_APPROVE"
+            }
+
+            ' Common.APP.StranglerHttpClientUtility を使ってコマンド名 "ITM.APP" で送信
+            ' 返却された Object (OParamBase) を LegacyMvc.PRM.ItemAppOParam へ DirectCast する
+            Dim rawOParam As Object = Await HttpUtil.ExecuteCommandAsync("ITM.APP", iParam, "Client/execute")
+            Dim oParam As ItemAppOParam = DirectCast(rawOParam, ItemAppOParam)
+
+            Dim firstBom As BomRecord = oParam.Boms.FirstOrDefault()
+            Dim bomSummary As String = If(firstBom IsNot Nothing,
+                $"{firstBom.BomNo} (ItmCd={firstBom.ItmCd}) -> Status={firstBom.ApprovalStatus}, By={firstBom.ApprovedBy}",
+                "(なし)")
+
+            Dim firstDrw As DrawingRecord = oParam.Drawings.FirstOrDefault()
+            Dim drwSummary As String = If(firstDrw IsNot Nothing,
+                $"{firstDrw.DrawingNo} ({firstDrw.Title}) -> Status={firstDrw.ApprovalStatus}, By={firstDrw.ApprovedBy}",
+                "(なし)")
+
+            txtResult.Text =
+                "=== [成功] コマンド名 ""ITM.APP"" 実行 & LegacyMvc.PRM.ItemAppOParam への DirectCast 完了 ===" & Environment.NewLine &
+                "Config 定義   : <command name=""ITM.APP"" command=""LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL"" db=""1"">" & Environment.NewLine &
+                "通信クラス    : Common.APP.StranglerHttpClientUtility.ExecuteCommandAsync(""ITM.APP"", iParam)" & Environment.NewLine &
+                "返却型キャスト: Dim oParam As ItemAppOParam = DirectCast(rawOParam, ItemAppOParam)" & Environment.NewLine &
+                New String("-"c, 75) & Environment.NewLine &
+                $"ExecutedCommandName  : {oParam.ExecutedCommandName}" & Environment.NewLine &
+                $"DbNumberUsed         : {oParam.DbNumberUsed}" & Environment.NewLine &
+                $"PermissionCheck      : {oParam.PermissionCheckResult}" & Environment.NewLine &
+                $"SummaryMessage       : {oParam.SummaryMessage}" & Environment.NewLine &
+                $"BomRecord            : {bomSummary}" & Environment.NewLine &
+                $"DrawingRecord        : {drwSummary}" & Environment.NewLine &
+                $"Items.Count          : {oParam.Items.Count} 件" & Environment.NewLine &
+                $"Boms.Count           : {oParam.Boms.Count} 件" & Environment.NewLine &
+                $"Drawings.Count       : {oParam.Drawings.Count} 件"
+        Catch ex As Exception
+            txtResult.Text = $"[ITM.APP 実行エラー]{Environment.NewLine}{ex}"
+        End Try
+    End Sub
+
     Private Sub btnOpenItemWinForms_Click(sender As Object, e As EventArgs) Handles btnOpenItemWinForms.Click
         If Not EnsureLoggedInOrPrompt() Then Return
-        Using itemForm As New ItemManagementForm(SharedHttpClient)
+        Using itemForm As New ItemManagementForm(HttpUtil)
             itemForm.ShowDialog(Me)
         End Using
     End Sub
@@ -296,12 +348,11 @@ Public Class Form1
 
     Private Async Sub btnLogout_Click(sender As Object, e As EventArgs) Handles btnLogout.Click
         Try
-            Await SharedHttpClient.PostAsync("api/bff/auth/logout", Nothing)
+            Await HttpUtil.HttpClient.PostAsync("api/bff/auth/logout", Nothing)
         Catch
         End Try
 
-        _currentSessionToken = String.Empty
-        SharedHttpClient.DefaultRequestHeaders.Remove(AuthTokenHeaderName)
+        HttpUtil.ClearSession()
         lblLoginStatus.Text = "ログイン状態: 未ログイン (ログアウトしました)"
         lblLoginStatus.ForeColor = Color.FromArgb(51, 65, 85)
         btnLogout.Enabled = False
@@ -312,16 +363,16 @@ Public Class Form1
     Private Async Sub btnFetchData_Click(sender As Object, e As EventArgs) Handles btnFetchData.Click
         If Not EnsureLoggedInOrPrompt() Then Return
         btnFetchData.Enabled = False
-        Dim relativePath As String = If(cmbRoute.SelectedItem?.ToString(), "/api/bff/workflow/projects")
+        Dim relativePath As String = If(cmbRoute.SelectedItem?.ToString(), "/Client/execute?commandName=ITM.APP")
 
         txtResult.Text = $"Gateway ({GatewayBaseUrl.TrimEnd("/"c)}{relativePath}) へリクエスト送信中..." & Environment.NewLine
 
         Try
-            Dim response As HttpResponseMessage = Await SharedHttpClient.GetAsync(relativePath.TrimStart("/"c))
+            Dim response As HttpResponseMessage = Await HttpUtil.GetAsync(relativePath)
             Dim rawJson As String = Await response.Content.ReadAsStringAsync()
             Dim formattedJson As String = FormatJsonSafely(rawJson)
 
-            ' /oauth/token 実行時は返却された access_token を自動的に Authorization: Bearer ヘッダーにセット
+            ' /oauth/token 実行時は返却された access_token を自動的に Common.APP.StranglerHttpClientUtility の Bearer ヘッダーにセット
             If relativePath.StartsWith("/oauth/token", StringComparison.OrdinalIgnoreCase) AndAlso response.IsSuccessStatusCode Then
                 Try
                     Using doc As JsonDocument = JsonDocument.Parse(rawJson)
@@ -329,7 +380,7 @@ Public Class Form1
                         If doc.RootElement.TryGetProperty("access_token", tokenElem) AndAlso tokenElem.ValueKind = JsonValueKind.String Then
                             Dim bearerToken As String = tokenElem.GetString()
                             If Not String.IsNullOrWhiteSpace(bearerToken) Then
-                                SharedHttpClient.DefaultRequestHeaders.Authorization = New Headers.AuthenticationHeaderValue("Bearer", bearerToken)
+                                HttpUtil.SetBearerAccessToken(bearerToken)
                             End If
                         End If
                     End Using
@@ -337,15 +388,15 @@ Public Class Form1
                 End Try
             End If
 
-            Dim currentBearer As String = If(SharedHttpClient.DefaultRequestHeaders.Authorization?.Parameter, "(未取得 - /oauth/token で取得可能)")
+            Dim currentBearer As String = If(String.IsNullOrEmpty(HttpUtil.BearerAccessToken), "(未取得 - /oauth/token で取得可能)", HttpUtil.BearerAccessToken)
 
             txtResult.Text =
                 $"Status : {CInt(response.StatusCode)} ({response.ReasonPhrase})" & Environment.NewLine &
-                $"URL    : {New Uri(SharedHttpClient.BaseAddress, relativePath.TrimStart("/"c))}" & Environment.NewLine &
-                $"Token  : {If(String.IsNullOrEmpty(_currentSessionToken), "(未ログイン)", _currentSessionToken)}" & Environment.NewLine &
+                $"URL    : {New Uri(HttpUtil.HttpClient.BaseAddress, relativePath.TrimStart("/"c))}" & Environment.NewLine &
+                $"Token  : {If(String.IsNullOrEmpty(HttpUtil.SessionToken), "(未ログイン)", HttpUtil.SessionToken)}" & Environment.NewLine &
                 $"Bearer : {currentBearer}" & Environment.NewLine &
                 $"Time   : {DateTime.Now:yyyy-MM-dd HH:mm:ss}" & Environment.NewLine &
-                New String("-"c, 70) & Environment.NewLine &
+                New String("-"c, 75) & Environment.NewLine &
                 formattedJson
         Catch ex As Exception
             txtResult.Text =

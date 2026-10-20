@@ -1,12 +1,21 @@
 using System.Text.Json;
+using Common.APP;
 using LegacyMvc.MDL.Commands;
+using LegacyMvc.PRM;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ModernBff.Data;
 using ModernBff.MDL.Commands;
 using ModernBff.Services;
+using Newtonsoft.Json.Linq;
 
 namespace ModernBff.Controllers;
+
+public class ClientCommandExecuteRequestDto
+{
+    public string CommandName { get; set; } = "ITM.APP";
+    public JsonElement? IParam { get; set; }
+}
 
 public class ClientItemSaveRequestDto
 {
@@ -50,7 +59,7 @@ public class ClientController : ControllerBase
     /// Windows Forms から渡された command.IParam.LoginUser、または ModernBff の Redis 共有セッションから
     /// ICommand.IParam (LoginUser / Session 情報) を設定します。
     /// </summary>
-    private async Task<string> PopulateClientIParamAsync(IParamBase iParam, CommandLoginUser? bodyLoginUser = null)
+    private async Task<string> PopulateClientIParamAsync(IParamBase iParam, LoginUser? bodyLoginUser = null)
     {
         string? token = _loginUserStore.ExtractToken(HttpContext);
         iParam.SessionId = string.IsNullOrWhiteSpace(token) ? "STATELESS-MODERN-BFF" : $"REDIS-TOKEN:{token}";
@@ -362,6 +371,124 @@ public class ClientController : ControllerBase
             CurrentLoginUser = cmd.IParam.LoginUser,
             LoginUserLookupSource = source,
             TimestampUtc = DateTime.UtcNow.ToString("O")
+        });
+    }
+
+    /// <summary>
+    /// POST /Client/execute (または GET /Client/execute?commandName=ITM.APP)
+    /// 【コマンド名指定ディスパッチ】
+    /// &lt;command name="ITM.APP" command="LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL" db="1"&gt;
+    /// Windows Forms (Common.APP.StranglerHttpClientUtility.ExecuteCommandAsync) からコマンド名 ("ITM.APP" 等) で通信すると、
+    /// LegacyMvc.MDL.dll の該当 ICommand 実装を生成し、Validate() -> Execute() を実行して
+    /// LegacyMvc.PRM の具体 OParam 型情報 (oParamType) とともに返却します。
+    /// WinFormsClient 側では DirectCast(result, ItemAppOParam) で厳密に型キャスト可能です。
+    /// </summary>
+    [HttpPost("execute")]
+    [HttpGet("execute")]
+    public async Task<IActionResult> ExecuteByCommandName(
+        [FromBody] ClientCommandExecuteRequestDto? body = null,
+        [FromQuery] string? commandName = null)
+    {
+        string resolvedName = !string.IsNullOrWhiteSpace(body?.CommandName)
+            ? body!.CommandName
+            : (!string.IsNullOrWhiteSpace(commandName) ? commandName! : "ITM.APP");
+
+        JToken? iParamToken = null;
+        LoginUser? bodyLoginUser = null;
+        if (body?.IParam != null && body.IParam.Value.ValueKind != JsonValueKind.Undefined && body.IParam.Value.ValueKind != JsonValueKind.Null)
+        {
+            string rawJson = body.IParam.Value.GetRawText();
+            iParamToken = JToken.Parse(rawJson);
+
+            var loginToken = iParamToken["loginUser"] ?? iParamToken["LoginUser"];
+            if (loginToken != null)
+            {
+                bodyLoginUser = loginToken.ToObject<LoginUser>();
+            }
+        }
+
+        CommandConfigEntry? entry = null;
+        var cmd = CommandDispatcher.CreateCommand(resolvedName, iParamToken, ref entry);
+
+        string provider = _configuration["Database:Provider"] ?? "SqlServer";
+        string connStr = _configuration.GetConnectionString(provider) ?? string.Empty;
+        if (cmd.IParam is ItemAppIParam appParam && string.IsNullOrWhiteSpace(appParam.ConfiguredProvider))
+        {
+            appParam.ConfiguredProvider = provider;
+            appParam.ConnectionString = connStr;
+        }
+        else if (cmd.IParam is ItemSearchIParam schParam && string.IsNullOrWhiteSpace(schParam.ConfiguredProvider))
+        {
+            schParam.ConfiguredProvider = provider;
+            schParam.ConnectionString = connStr;
+        }
+        else if (cmd.IParam is ItemSaveIParam savParam && string.IsNullOrWhiteSpace(savParam.ConfiguredProvider))
+        {
+            savParam.ConfiguredProvider = provider;
+            savParam.ConnectionString = connStr;
+        }
+
+        string loginSource = await PopulateClientIParamAsync(cmd.IParam, bodyLoginUser);
+
+        try
+        {
+            cmd.Validate();
+            cmd.Execute();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                Controller = "ModernBff.Controllers.ClientController (RoutePrefix: Client)",
+                CommandName = entry?.Name ?? resolvedName,
+                CommandType = entry?.CommandTypeString ?? cmd.GetType().FullName,
+                DbSlot = entry?.Db ?? 1,
+                ResponseType = cmd.ResponseType,
+                IParamType = cmd.IParam.GetType().FullName,
+                OParamType = cmd.OParam.GetType().FullName,
+                IParam = cmd.IParam,
+                OParam = cmd.OParam,
+                Error = ex.Message
+            });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new
+            {
+                Controller = "ModernBff.Controllers.ClientController (RoutePrefix: Client)",
+                CommandName = entry?.Name ?? resolvedName,
+                Error = ex.Message
+            });
+        }
+
+        return Ok(new
+        {
+            Controller = "ModernBff.Controllers.ClientController (RoutePrefix: Client)",
+            AccessedFrom = "Windows Forms Client (Command Dispatcher)",
+            CommandName = entry?.Name ?? resolvedName,
+            CommandConfig = $"<command name=\"{entry?.Name}\" command=\"{entry?.CommandTypeString}\" db=\"{entry?.Db}\">",
+            DbSlot = entry?.Db ?? 1,
+            ResponseType = cmd.ResponseType,
+            LoginUserLookupSource = loginSource,
+            iParamType = cmd.IParam.GetType().FullName,
+            oParamType = cmd.OParam.GetType().FullName,
+            iParam = cmd.IParam,
+            oParam = cmd.OParam,
+            TimestampUtc = DateTime.UtcNow.ToString("O")
+        });
+    }
+
+    /// <summary>
+    /// GET /Client/commands
+    /// 登録されているコマンド名一覧 (&lt;command name="ITM.APP" ...&gt;) を返します。
+    /// </summary>
+    [HttpGet("commands")]
+    public IActionResult GetRegisteredCommands()
+    {
+        return Ok(new
+        {
+            Controller = "ModernBff.Controllers.ClientController",
+            RegisteredCommands = CommandDispatcher.GetRegisteredCommands()
         });
     }
 }

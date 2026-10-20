@@ -5,18 +5,23 @@ Imports System.Net.Http
 Imports System.Text
 Imports System.Text.Json
 Imports System.Windows.Forms
+Imports Common.APP
+Imports LegacyMvc.PRM
 
 ''' <summary>
-''' 【レガシー側 Windows Forms 画面】品目マスタ (ITM_TBL) の管理画面 (検索・新規登録・更新・品目からのワークフロー申請)
+''' 【レガシー側 Windows Forms 画面】品目マスタ (ITM_TBL) の管理画面
+''' ・Common.APP.StranglerHttpClientUtility と Common.APP.LoginUser を使用
+''' ・LegacyMvc.PRM プロジェクトのパラメータクラス (ItemSearchOParam / ItemSaveOParam / ItemAppOParam) を DirectCast して利用
 ''' </summary>
 Public Class ItemManagementForm
     Inherits Form
 
-    Private ReadOnly _httpClient As HttpClient
+    Private ReadOnly _httpUtil As StranglerHttpClientUtility
 
     Private txtSearchKeyword As TextBox
     Private WithEvents btnSearch As Button
     Private WithEvents btnShowAll As Button
+    Private WithEvents btnExecItmApp As Button
     Private dgvItems As DataGridView
 
     Private txtItmCd As TextBox
@@ -28,26 +33,34 @@ Public Class ItemManagementForm
     Private WithEvents btnApplyItemWorkflow As Button
     Private lblStatus As Label
 
-    Public Sub New(httpClient As HttpClient)
-        _httpClient = httpClient
+    Public Sub New(httpUtil As StranglerHttpClientUtility)
+        _httpUtil = httpUtil
         InitializeComponent()
     End Sub
 
     Private Sub InitializeComponent()
-        Me.Text = "[レガシー側 Windows Forms] 品目マスタ (ITM_TBL) 管理画面 (検索・登録・WF申請)"
-        Me.Size = New Size(900, 560)
+        Me.Text = "[WinForms] 品目マスタ (ITM_TBL) 管理画面 (Common.APP + LegacyMvc.PRM DirectCast 対応)"
+        Me.Size = New Size(940, 560)
         Me.StartPosition = FormStartPosition.CenterParent
 
-        ' 上部: 検索バー
+        ' 上部: 検索バー & ITM.APP 実行ボタン
         Dim lblSearch As New Label() With {.Text = "品目検索 (コード/名称/カテゴリ):", .Location = New Point(16, 18), .AutoSize = True}
-        txtSearchKeyword = New TextBox() With {.Location = New Point(210, 14), .Size = New Size(260, 26)}
-        btnSearch = New Button() With {.Text = "検索 (ITM_TBL)", .Location = New Point(480, 12), .Size = New Size(120, 28)}
-        btnShowAll = New Button() With {.Text = "全件表示", .Location = New Point(608, 12), .Size = New Size(95, 28)}
+        txtSearchKeyword = New TextBox() With {.Location = New Point(210, 14), .Size = New Size(220, 26)}
+        btnSearch = New Button() With {.Text = "検索 (ITM.SCH)", .Location = New Point(440, 12), .Size = New Size(120, 28)}
+        btnShowAll = New Button() With {.Text = "全件表示", .Location = New Point(568, 12), .Size = New Size(90, 28)}
+        btnExecItmApp = New Button() With {
+            .Text = "コマンド ""ITM.APP"" 実行 (DirectCast)",
+            .Location = New Point(668, 12),
+            .Size = New Size(235, 28),
+            .BackColor = Color.FromArgb(180, 83, 9),
+            .ForeColor = Color.White,
+            .FlatStyle = FlatStyle.Flat
+        }
 
         ' 中央: 品目一覧 DataGridView
         dgvItems = New DataGridView() With {
             .Location = New Point(16, 50),
-            .Size = New Size(850, 250),
+            .Size = New Size(890, 250),
             .ReadOnly = True,
             .AllowUserToAddRows = False,
             .SelectionMode = DataGridViewSelectionMode.FullRowSelect,
@@ -58,9 +71,9 @@ Public Class ItemManagementForm
 
         ' 下部: 品目登録・更新・ワークフロー申請パネル
         Dim grpEdit As New GroupBox() With {
-            .Text = "品目 (ITM_TBL) の新規登録・更新 ／ 品目からのワークフロー申請",
+            .Text = "品目 (ITM_TBL) の新規登録・更新 (ITM.SAV) ／ 品目からのワークフロー申請",
             .Location = New Point(16, 312),
-            .Size = New Size(850, 195),
+            .Size = New Size(890, 195),
             .Anchor = AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right
         }
 
@@ -68,7 +81,7 @@ Public Class ItemManagementForm
         txtItmCd = New TextBox() With {.Text = "ITM-004", .Location = New Point(155, 26), .Size = New Size(150, 25)}
 
         Dim l2 As New Label() With {.Text = "品目名称 (ITM_NM)*:", .Location = New Point(330, 30), .AutoSize = True}
-        txtItmNm = New TextBox() With {.Text = "高耐久サーボモーター Unit-X", .Location = New Point(465, 26), .Size = New Size(360, 25)}
+        txtItmNm = New TextBox() With {.Text = "高耐久サーボモーター Unit-X", .Location = New Point(465, 26), .Size = New Size(390, 25)}
 
         Dim l3 As New Label() With {.Text = "カテゴリ (CATEGORY):", .Location = New Point(16, 68), .AutoSize = True}
         txtCategory = New TextBox() With {.Text = "駆動ユニット", .Location = New Point(155, 64), .Size = New Size(150, 25)}
@@ -80,9 +93,9 @@ Public Class ItemManagementForm
         txtStockQty = New TextBox() With {.Text = "50", .Location = New Point(735, 64), .Size = New Size(90, 25)}
 
         btnSaveItem = New Button() With {
-            .Text = "品目 (ITM_TBL) を登録・更新",
+            .Text = "品目 (ITM_TBL) を登録・更新 (ITM.SAV)",
             .Location = New Point(155, 108),
-            .Size = New Size(240, 36),
+            .Size = New Size(260, 36),
             .BackColor = Color.FromArgb(37, 99, 235),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
@@ -90,8 +103,8 @@ Public Class ItemManagementForm
 
         btnApplyItemWorkflow = New Button() With {
             .Text = "選択した品目でワークフロー申請 (Step1: 申請)",
-            .Location = New Point(415, 108),
-            .Size = New Size(310, 36),
+            .Location = New Point(430, 108),
+            .Size = New Size(320, 36),
             .BackColor = Color.FromArgb(5, 150, 105),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
@@ -100,13 +113,13 @@ Public Class ItemManagementForm
         lblStatus = New Label() With {
             .Text = "準備完了",
             .Location = New Point(16, 156),
-            .Size = New Size(810, 24),
+            .Size = New Size(850, 24),
             .ForeColor = Color.FromArgb(5, 150, 105)
         }
 
         grpEdit.Controls.AddRange(New Control() {l1, txtItmCd, l2, txtItmNm, l3, txtCategory, l4, txtUnitPrice, l5, txtStockQty, btnSaveItem, btnApplyItemWorkflow, lblStatus})
 
-        Me.Controls.AddRange(New Control() {lblSearch, txtSearchKeyword, btnSearch, btnShowAll, dgvItems, grpEdit})
+        Me.Controls.AddRange(New Control() {lblSearch, txtSearchKeyword, btnSearch, btnShowAll, btnExecItmApp, dgvItems, grpEdit})
     End Sub
 
     Protected Overrides Async Sub OnLoad(e As EventArgs)
@@ -123,16 +136,19 @@ Public Class ItemManagementForm
         Await LoadItemsAsync(String.Empty)
     End Sub
 
+    ''' <summary>
+    ''' Common.APP.StranglerHttpClientUtility でコマンド "ITM.SCH" を呼び出し、
+    ''' 返却された OParam を DirectCast(rawResult, ItemSearchOParam) でキャストして表示します。
+    ''' </summary>
     Private Async Function LoadItemsAsync(keyword As String) As Task
         Try
-            lblStatus.Text = "ClientController (Client/items) 経由で ITM_TBL を検索中..."
-            Dim url As String = "Client/items"
-            If Not String.IsNullOrWhiteSpace(keyword) Then
-                url &= "?itmCd=" & Uri.EscapeDataString(keyword)
-            End If
+            lblStatus.Text = "Common.APP.StranglerHttpClientUtility 経由でコマンド 'ITM.SCH' を実行中..."
+            Dim searchIParam As New ItemSearchIParam() With {
+                .Keyword = keyword
+            }
 
-            Dim resp As HttpResponseMessage = Await _httpClient.GetAsync(url)
-            Dim json As String = Await resp.Content.ReadAsStringAsync()
+            Dim rawResult As Object = Await _httpUtil.ExecuteCommandAsync("ITM.SCH", searchIParam, "Client/execute")
+            Dim searchOParam As ItemSearchOParam = DirectCast(rawResult, ItemSearchOParam)
 
             Dim dt As New DataTable()
             dt.Columns.Add("品目コード (ITM_CD)")
@@ -143,29 +159,56 @@ Public Class ItemManagementForm
             dt.Columns.Add("承認ステータス")
             dt.Columns.Add("承認者")
 
-            Using doc As JsonDocument = JsonDocument.Parse(json)
-                Dim itemsElem As JsonElement
-                If doc.RootElement.TryGetProperty("items", itemsElem) AndAlso itemsElem.ValueKind = JsonValueKind.Array Then
-                    For Each item As JsonElement In itemsElem.EnumerateArray()
-                        dt.Rows.Add(
-                            GetStr(item, "itmCd"),
-                            GetStr(item, "itmNm"),
-                            GetStr(item, "category"),
-                            GetNum(item, "unitPrice"),
-                            GetNum(item, "stockQty"),
-                            GetStr(item, "approvalStatus"),
-                            GetStr(item, "approvedBy")
-                        )
-                    Next
-                End If
-            End Using
+            For Each item As ItmTblEntity In searchOParam.Items
+                dt.Rows.Add(
+                    item.ItmCd,
+                    item.ItmNm,
+                    item.Category,
+                    item.UnitPrice.ToString("0"),
+                    item.StockQty.ToString(),
+                    item.ApprovalStatus,
+                    If(item.ApprovedBy, String.Empty)
+                )
+            Next
 
             dgvItems.DataSource = dt
-            lblStatus.Text = $"検索完了: {dt.Rows.Count} 件の品目 (ITM_TBL) を取得しました [RoutePrefix: Client]。"
+            lblStatus.Text = $"✓ DirectCast(result, ItemSearchOParam) 成功: {searchOParam.Items.Count} 件の品目を取得しました。"
         Catch ex As Exception
             lblStatus.Text = "検索エラー: " & ex.Message
         End Try
     End Function
+
+    ''' <summary>
+    ''' &lt;command name="ITM.APP" command="LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL" db="1"&gt;
+    ''' コマンド名 "ITM.APP" で通信し、返却された OParam を DirectCast(result, ItemAppOParam) で受け取る処理
+    ''' </summary>
+    Private Async Sub btnExecItmApp_Click(sender As Object, e As EventArgs) Handles btnExecItmApp.Click
+        Try
+            Dim code As String = If(String.IsNullOrWhiteSpace(txtItmCd.Text), "ITM-001", txtItmCd.Text.Trim())
+            Dim appIParam As New ItemAppIParam() With {
+                .TargetItmCd = code,
+                .TargetBomNo = "BOM-2026-001",
+                .TargetDrawingNo = "drw004",
+                .ActionMode = "QUERY_AND_APPROVE"
+            }
+
+            Dim rawResult As Object = Await _httpUtil.ExecuteCommandAsync("ITM.APP", appIParam, "Client/execute")
+            Dim appOParam As ItemAppOParam = DirectCast(rawResult, ItemAppOParam)
+
+            Await LoadItemsAsync(String.Empty)
+            lblStatus.Text = $"✓ DirectCast(result, ItemAppOParam) 成功: {appOParam.SummaryMessage}"
+            MessageBox.Show(
+                $"【コマンド ""ITM.APP"" 実行 & DirectCast 成功】" & Environment.NewLine &
+                $"実行クラス: {appOParam.ExecutedCommandName} (db={appOParam.DbNumberUsed})" & Environment.NewLine &
+                $"メッセージ: {appOParam.SummaryMessage}" & Environment.NewLine &
+                $"品目件数  : {appOParam.Items.Count} 件 / BOM件数: {appOParam.Boms.Count} 件 / 図面件数: {appOParam.Drawings.Count} 件",
+                "ITM.APP DirectCast 完了",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information)
+        Catch ex As Exception
+            MessageBox.Show("ITM.APP 実行エラー: " & ex.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+    End Sub
 
     Private Sub OnGridSelectionChanged(sender As Object, e As EventArgs)
         If dgvItems.SelectedRows.Count > 0 Then
@@ -185,37 +228,31 @@ Public Class ItemManagementForm
             Dim qty As Integer = 0
             Integer.TryParse(txtStockQty.Text, qty)
 
-            Dim payloadObj = New With {
-                .iParam = New With {
-                    .itmCd = txtItmCd.Text.Trim(),
-                    .itmNm = txtItmNm.Text.Trim(),
-                    .category = txtCategory.Text.Trim(),
-                    .unitPrice = price,
-                    .stockQty = qty,
-                    .loginUser = New With {
-                        .userId = "yamada",
-                        .userName = "山田 太郎",
-                        .organizationCode = "SALES-01",
-                        .organizationName = "第一営業本部",
-                        .roles = New String() {"SalesManager", "Approver"},
-                        .authenticationMethod = "WinForms-IParam.LoginUser",
-                        .isAuthenticated = True
-                    }
-                },
-                .itmCd = txtItmCd.Text.Trim(),
-                .itmNm = txtItmNm.Text.Trim(),
-                .category = txtCategory.Text.Trim(),
-                .unitPrice = price,
-                .stockQty = qty
+            Dim saveIParam As New ItemSaveIParam() With {
+                .ItmCd = txtItmCd.Text.Trim(),
+                .ItmNm = txtItmNm.Text.Trim(),
+                .Category = txtCategory.Text.Trim(),
+                .UnitPrice = price,
+                .StockQty = qty
             }
-            Dim jsonBody As String = JsonSerializer.Serialize(payloadObj)
-            Dim content As New StringContent(jsonBody, Encoding.UTF8, "application/json")
 
-            Dim resp As HttpResponseMessage = Await _httpClient.PostAsync("Client/items", content)
-            Dim respText As String = Await resp.Content.ReadAsStringAsync()
+            ' 1. コマンドディスパッチャ ("ITM.SAV") で実行し、ItemSaveOParam に DirectCast
+            Dim rawResult As Object = Await _httpUtil.ExecuteCommandAsync("ITM.SAV", saveIParam, "Client/execute")
+            Dim saveOParam As ItemSaveOParam = DirectCast(rawResult, ItemSaveOParam)
+
+            ' 2. ModernBff の EF Core テーブルとも同期
+            Dim syncBody As String = JsonSerializer.Serialize(New With {
+                .iParam = saveIParam,
+                .itmCd = saveIParam.ItmCd,
+                .itmNm = saveIParam.ItmNm,
+                .category = saveIParam.Category,
+                .unitPrice = saveIParam.UnitPrice,
+                .stockQty = saveIParam.StockQty
+            })
+            Await _httpUtil.HttpClient.PostAsync("Client/items", New StringContent(syncBody, Encoding.UTF8, "application/json"))
 
             Await LoadItemsAsync(String.Empty)
-            lblStatus.Text = $"✓ ClientController (Client/items) -> ICommand (Validate/Execute) 経由で品目 '{txtItmCd.Text}' を登録・更新しました。"
+            lblStatus.Text = $"✓ DirectCast(result, ItemSaveOParam) 成功: 品目 '{saveOParam.SavedItem.ItmCd}' を登録・更新しました。"
         Catch ex As Exception
             MessageBox.Show("品目登録エラー: " & ex.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
@@ -233,7 +270,7 @@ Public Class ItemManagementForm
                 .wfTitle = $"[品目単体申請 (WinForms -> Client)] {code}: {name}"
             }
             Dim content As New StringContent(JsonSerializer.Serialize(payloadObj), Encoding.UTF8, "application/json")
-            Dim resp As HttpResponseMessage = Await _httpClient.PostAsync("Client/workflow/apply", content)
+            Dim resp As HttpResponseMessage = Await _httpUtil.HttpClient.PostAsync("Client/workflow/apply", content)
             Dim respJson As String = Await resp.Content.ReadAsStringAsync()
 
             Await LoadItemsAsync(String.Empty)
@@ -247,20 +284,4 @@ Public Class ItemManagementForm
             MessageBox.Show("ワークフロー申請エラー: " & ex.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
     End Sub
-
-    Private Shared Function GetStr(el As JsonElement, prop As String) As String
-        Dim v As JsonElement
-        If el.TryGetProperty(prop, v) AndAlso v.ValueKind = JsonValueKind.String Then
-            Return If(v.GetString(), String.Empty)
-        End If
-        Return String.Empty
-    End Function
-
-    Private Shared Function GetNum(el As JsonElement, prop As String) As String
-        Dim v As JsonElement
-        If el.TryGetProperty(prop, v) AndAlso v.ValueKind = JsonValueKind.Number Then
-            Return v.GetRawText()
-        End If
-        Return "0"
-    End Function
 End Class

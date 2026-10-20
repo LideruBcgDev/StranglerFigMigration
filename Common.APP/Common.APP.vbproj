@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- 全プロジェクト (LegacyMvc / LegacyMvc.PRM / LegacyMvc.MDL / ModernBff / WinFormsClient) から参照可能な共通基盤 -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>Common.APP</RootNamespace>
+    <AssemblyName>Common.APP</AssemblyName>
+    <OptionExplicit>On</OptionExplicit>
+    <OptionStrict>On</OptionStrict>
+    <OptionCompare>Binary</OptionCompare>
+    <OptionInfer>On</OptionInfer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+</Project>

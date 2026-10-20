@@ -1,88 +1,11 @@
 Imports System
-Imports System.Collections.Generic
-Imports System.ComponentModel.DataAnnotations
-Imports System.ComponentModel.DataAnnotations.Schema
 Imports System.Linq
 Imports System.Runtime.InteropServices
 Imports LegacyMvc.MDL.Commands
+Imports LegacyMvc.PRM
 Imports Microsoft.EntityFrameworkCore
 
 Namespace Data
-
-    <Table("USR_TBL")>
-    Public Class UsrTblEntity
-        <Key>
-        <Column("USR_ID")>
-        <MaxLength(64)>
-        Public Property UsrId As String = String.Empty
-
-        <Required>
-        <Column("PASSWORD")>
-        <MaxLength(128)>
-        Public Property Password As String = String.Empty
-
-        <Required>
-        <Column("USR_NM")>
-        <MaxLength(128)>
-        Public Property UsrNm As String = String.Empty
-
-        <Column("ORG_CD")>
-        <MaxLength(64)>
-        Public Property OrgCd As String = String.Empty
-
-        <Column("ORG_NM")>
-        <MaxLength(128)>
-        Public Property OrgNm As String = String.Empty
-
-        <Column("ROLES_CSV")>
-        <MaxLength(512)>
-        Public Property RolesCsv As String = String.Empty
-
-        <Column("IS_ACTIVE")>
-        Public Property IsActive As Boolean = True
-    End Class
-
-    <Table("ITM_TBL")>
-    Public Class ItmTblEntity
-        <Key>
-        <Column("ITM_CD")>
-        <MaxLength(64)>
-        Public Property ItmCd As String = String.Empty
-
-        <Required>
-        <Column("ITM_NM")>
-        <MaxLength(128)>
-        Public Property ItmNm As String = String.Empty
-
-        <Column("CATEGORY")>
-        <MaxLength(64)>
-        Public Property Category As String = String.Empty
-
-        <Column("UNIT_PRICE")>
-        Public Property UnitPrice As Decimal
-
-        <Column("STOCK_QTY")>
-        Public Property StockQty As Integer
-
-        <Column("APPROVAL_STATUS")>
-        <MaxLength(64)>
-        Public Property ApprovalStatus As String = "DRAFT (未申請)"
-
-        <Column("APPROVED_BY")>
-        <MaxLength(128)>
-        Public Property ApprovedBy As String
-
-        <Column("APPROVED_AT_UTC")>
-        Public Property ApprovedAtUtc As DateTime?
-
-        <Column("UPDATED_AT_UTC")>
-        Public Property UpdatedAtUtc As DateTime = DateTime.UtcNow
-    End Class
-
-    Public Class LegacyItemQueryResult
-        Public Property Items As List(Of ItmTblEntity) = New List(Of ItmTblEntity)()
-        Public Property ProviderStatus As String = String.Empty
-    End Class
 
     Public Class LegacyStranglerDbContext
         Inherits DbContext

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- WinFormsClient (.NET 8) / LegacyMvc (.NET 4.8.1) / LegacyMvc.MDL / ModernBff (.NET 9/10) から共通参照可能なパラメタ定義プロジェクト -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>LegacyMvc.PRM</RootNamespace>
+    <AssemblyName>LegacyMvc.PRM</AssemblyName>
+    <OptionExplicit>On</OptionExplicit>
+    <OptionStrict>On</OptionStrict>
+    <OptionCompare>Binary</OptionCompare>
+    <OptionInfer>On</OptionInfer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Common.APP\Common.APP.vbproj" />
+  </ItemGroup>
+
+</Project>

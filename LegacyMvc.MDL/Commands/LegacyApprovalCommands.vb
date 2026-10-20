@@ -4,33 +4,13 @@ Imports System.Collections.Generic
 Imports System.Data
 Imports System.Data.Common
 Imports System.Linq
+Imports LegacyMvc.PRM
 
 Namespace Commands
 
-    Public Class BomRecord
-        Public Property BomNo As String = String.Empty
-        Public Property ProjectId As String = String.Empty
-        Public Property ItmCd As String = String.Empty
-        Public Property ApprovalStatus As String = "DRAFT (未申請)"
-        Public Property ApprovedBy As String
-        Public Property ApprovedOrg As String
-        Public Property ApprovedAtUtc As DateTime?
-    End Class
-
-    Public Class DrawingRecord
-        Public Property DrawingNo As String = String.Empty
-        Public Property BomNo As String = String.Empty
-        Public Property ItmCd As String = String.Empty
-        Public Property Title As String = String.Empty
-        Public Property Revision As String = "Rev.A"
-        Public Property ApprovalStatus As String = "DRAFT (未申請)"
-        Public Property ApprovedBy As String
-        Public Property ApprovedOrg As String
-        Public Property ApprovedAtUtc As DateTime?
-    End Class
-
     ''' <summary>
     ''' レガシー側 (LegacyMvc.MDL - VB.NET) の BOM (BOM_TBL) / 図面 (DRW_TBL) 管理・承認ストア。
+    ''' BomRecord / DrawingRecord は LegacyMvc.PRM プロジェクトに定義されています。
     ''' </summary>
     Public NotInheritable Class LegacyApprovalStore
         Private Shared ReadOnly BomTable As New ConcurrentDictionary(Of String, BomRecord)(StringComparer.OrdinalIgnoreCase)

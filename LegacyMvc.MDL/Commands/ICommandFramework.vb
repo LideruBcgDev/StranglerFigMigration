@@ -1,99 +1,77 @@
 Imports System
 Imports System.Collections.Generic
 Imports System.Linq
+Imports System.Reflection
+Imports Common.APP
 Imports LegacyMvc.MDL.Data
+Imports LegacyMvc.PRM
+Imports Newtonsoft.Json.Linq
+
+' ====================================================================================
+' Config 指定例: <command name="ITM.APP" command="LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL" db="1" />
+' に完全一致するクラス名 (RootNamespace = LegacyMvc.MDL 直下の CommandsLegacyApprovalStore)
+' ====================================================================================
+<CommandDefinition("ITM.APP", Db:=1, Description:="品目・BOM・図面の承認・照会コマンド (LegacyMvc.MDL.CommandsLegacyApprovalStore)")>
+Public Class CommandsLegacyApprovalStore
+    Inherits Commands.CommandBase(Of ItemAppIParam, ItemAppOParam)
+
+    Public Sub New()
+        MyBase.New(Nothing)
+    End Sub
+
+    Public Sub New(iParam As ItemAppIParam)
+        MyBase.New(iParam)
+    End Sub
+
+    Protected Overrides Sub ExecuteCore()
+        Dim queryCmd As New LegacyItemQueryCommand()
+        Dim itemRes As LegacyItemQueryResult = queryCmd.Execute(_iParam.ConfiguredProvider, _iParam.ConnectionString, _iParam.TargetItmCd)
+
+        If String.Equals(_iParam.ActionMode, "QUERY_AND_APPROVE", StringComparison.OrdinalIgnoreCase) Then
+            Using tx As New Commands.SharedTransactionContext()
+                Dim uid As String = If(_iParam.LoginUser?.UserId, "yamada")
+                Dim uname As String = If(_iParam.LoginUser?.UserName, "山田 太郎")
+                Dim uorg As String = If(_iParam.LoginUser?.OrganizationName, "第一営業本部")
+
+                queryCmd.ApproveItemInTransaction(tx, _iParam.ConfiguredProvider, _iParam.ConnectionString, _iParam.TargetItmCd, uid, uname)
+
+                Dim bomCmd As New Commands.BomApprovalCommand()
+                bomCmd.Execute(tx, _iParam.TargetBomNo, uid, uname, uorg)
+
+                Dim drwCmd As New Commands.DrawingApprovalCommand()
+                drwCmd.Execute(tx, _iParam.TargetDrawingNo, _iParam.TargetBomNo, uid, uname, uorg)
+
+                tx.Commit()
+            End Using
+
+            itemRes = queryCmd.Execute(_iParam.ConfiguredProvider, _iParam.ConnectionString, Nothing)
+        End If
+
+        _oParam.Items = itemRes.Items
+        _oParam.Boms = Commands.LegacyApprovalStore.GetAllBoms()
+        _oParam.Drawings = Commands.LegacyApprovalStore.GetAllDrawings()
+        _oParam.ProviderStatus = itemRes.ProviderStatus
+        _oParam.SummaryMessage = $"[ITM.APP: CommandsLegacyApprovalStore (db={_iParam.DbNumber})] 品目 {itemRes.Items.Count}件 / BOM {_oParam.Boms.Count}件 / 図面 {_oParam.Drawings.Count}件 を処理しました。"
+    End Sub
+End Class
 
 Namespace Commands
 
     ''' <summary>
-    ''' 【レガシー側共通コマンドインターフェース (LegacyMvc.MDL - VB.NET)】
-    ''' LegacyMvc のすべての実処理を受け持つコマンドの基本インターフェースです。
-    ''' </summary>
-    Public Interface ICommand
-        ReadOnly Property IParam() As IParamBase
-        ReadOnly Property OParam() As OParamBase
-        Property ResponseType() As String
-        Sub Execute()
-        Sub Validate()
-    End Interface
-
-    ''' <summary>
-    ''' IParamBase に格納されるログインユーザ情報 (LoginUser)。
-    ''' ・ViewController では HttpContext.User.Identity (IIdentity) から取得して設定
-    ''' ・ClientController では Windows Forms 側で設定された command.IParam.LoginUser から取得
-    ''' </summary>
-    Public Class CommandLoginUser
-        Public Property UserId As String = String.Empty
-        Public Property UserName As String = String.Empty
-        Public Property OrganizationCode As String = String.Empty
-        Public Property OrganizationName As String = String.Empty
-        Public Property Roles As New List(Of String)()
-        Public Property AuthenticationMethod As String = String.Empty
-        Public Property IsAuthenticated As Boolean = False
-        ''' <summary>
-        ''' どのように LoginUser が設定されたかの証跡
-        ''' 例: "ViewController (IIdentity)" / "ClientController (WinForms IParam.LoginUser)" / "ModernBff (Redis SharedSession)"
-        ''' </summary>
-        Public Property SourceChannel As String = String.Empty
-    End Class
-
-    ''' <summary>
-    ''' 【入力パラメータ基底クラス (IParamBase)】
-    ''' Session 情報および LoginUser 情報を保持し、Validate() でコマンド利用可否の判定に使用されます。
-    ''' </summary>
-    Public Class IParamBase
-        ''' <summary>
-        ''' ASP.NET Session ID (または分散セッションキー)
-        ''' </summary>
-        Public Property SessionId As String = String.Empty
-
-        ''' <summary>
-        ''' Session 情報ディクショナリ (レガシー側で Session 変数をコマンドへ引き渡すための領域)
-        ''' </summary>
-        Public Property SessionData As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
-
-        ''' <summary>
-        ''' コマンド実行ユーザ情報 (ViewController は IIdentity から設定、ClientController は WinForms 送信値から取得)
-        ''' </summary>
-        Public Property LoginUser As New CommandLoginUser()
-
-        ''' <summary>
-        ''' 実行対象コマンドID (権限チェック用)
-        ''' </summary>
-        Public Property CommandId As String = String.Empty
-    End Class
-
-    ''' <summary>
-    ''' 【出力パラメータ基底クラス (OParamBase)】
-    ''' コマンドの認可検証結果 (Validate) および実行結果 (Execute) を保持します。
-    ''' </summary>
-    Public Class OParamBase
-        Public Property IsSuccess As Boolean = False
-        Public Property ValidationPassed As Boolean = False
-        Public Property ExecutedCommandName As String = String.Empty
-        Public Property AuthorizedUserId As String = String.Empty
-        Public Property AuthorizedUserName As String = String.Empty
-        Public Property LoginUserSource As String = String.Empty
-        Public Property SessionIdUsed As String = String.Empty
-        Public Property PermissionCheckResult As String = String.Empty
-        Public Property ErrorMessage As String = String.Empty
-        Public Property ExecutedAtUtc As DateTime = DateTime.UtcNow
-    End Class
-
-    ''' <summary>
-    ''' コマンド利用可否 (認可) と共通実行フローを提供する抽象基底クラス
+    ''' コマンド利用可否 (認可) と共通実行フローを提供する抽象基底クラス。
+    ''' ICommand / IParamBase / OParamBase は LegacyMvc.PRM プロジェクトに定義されています。
     ''' </summary>
     Public MustInherit Class CommandBase(Of TIParam As {IParamBase, New}, TOParam As {OParamBase, New})
         Implements ICommand
 
-        Protected ReadOnly _iParam As TIParam
+        Protected _iParam As TIParam
         Protected ReadOnly _oParam As TOParam
         Private _responseType As String = "application/json"
 
         Protected Sub New(Optional iParam As TIParam = Nothing)
             _iParam = If(iParam, New TIParam())
             _oParam = New TOParam() With {
-                .ExecutedCommandName = Me.GetType().Name
+                .ExecutedCommandName = Me.GetType().FullName
             }
         End Sub
 
@@ -131,8 +109,21 @@ Namespace Commands
         End Property
 
         ''' <summary>
-        ''' このコマンドを実行するために必要なロール一覧 (空の場合はログイン済みであれば全ロール許可)
+        ''' JSON 等からデシリアライズされた IParam オブジェクトをコマンドに注入します。
         ''' </summary>
+        Public Sub ApplyIParamJson(jToken As JToken, dbNumber As Integer, commandKey As String)
+            If jToken IsNot Nothing AndAlso jToken.Type = JTokenType.Object Then
+                Dim restored As TIParam = jToken.ToObject(Of TIParam)()
+                If restored IsNot Nothing Then
+                    _iParam = restored
+                End If
+            End If
+            _iParam.DbNumber = dbNumber
+            _iParam.CommandId = commandKey
+            _oParam.DbNumberUsed = dbNumber
+            _oParam.ExecutedCommandKey = commandKey
+        End Sub
+
         Protected Overridable ReadOnly Property AllowedRoles As String()
             Get
                 Return New String() {"Admin", "Approver", "SalesManager", "Engineer", "QualityAssurance", "Viewer"}
@@ -140,11 +131,12 @@ Namespace Commands
         End Property
 
         ''' <summary>
-        ''' IParam.LoginUser をもって、ログインユーザがこの Command を利用可能か検証します。
+        ''' IParam.LoginUser (Common.APP.LoginUser) をもって、ログインユーザがこの Command を利用可能か検証します。
         ''' </summary>
         Public Overridable Sub Validate() Implements ICommand.Validate
-            Dim user As CommandLoginUser = _iParam.LoginUser
+            Dim user As LoginUser = _iParam.LoginUser
             _oParam.SessionIdUsed = If(String.IsNullOrWhiteSpace(_iParam.SessionId), "(Sessionなし/Stateless)", _iParam.SessionId)
+            _oParam.DbNumberUsed = _iParam.DbNumber
 
             If user Is Nothing OrElse String.IsNullOrWhiteSpace(user.UserId) Then
                 _oParam.ValidationPassed = False
@@ -152,7 +144,6 @@ Namespace Commands
                 Throw New UnauthorizedAccessException(_oParam.PermissionCheckResult)
             End If
 
-            ' 禁止ユーザ (例: guest / blocked) のチェック
             If String.Equals(user.UserId, "blocked", StringComparison.OrdinalIgnoreCase) OrElse
                String.Equals(user.UserId, "unauthorized", StringComparison.OrdinalIgnoreCase) Then
                 _oParam.ValidationPassed = False
@@ -162,7 +153,6 @@ Namespace Commands
                 Throw New UnauthorizedAccessException(_oParam.PermissionCheckResult)
             End If
 
-            ' ロール権限チェック (AllowedRoles が指定されており、ユーザがロールを持つ場合)
             Dim requiredRoles As String() = AllowedRoles
             If requiredRoles IsNot Nothing AndAlso requiredRoles.Length > 0 AndAlso user.Roles IsNot Nothing AndAlso user.Roles.Count > 0 Then
                 Dim hasRole As Boolean = user.Roles.Any(Function(r) requiredRoles.Any(Function(req) String.Equals(r, req, StringComparison.OrdinalIgnoreCase)))
@@ -179,7 +169,7 @@ Namespace Commands
             _oParam.AuthorizedUserId = user.UserId
             _oParam.AuthorizedUserName = user.UserName
             _oParam.LoginUserSource = user.SourceChannel
-            _oParam.PermissionCheckResult = $"OK: ユーザ '{user.UserName} ({user.UserId})' [取得元: {user.SourceChannel}] はコマンド '{Me.GetType().Name}' を利用可能です。"
+            _oParam.PermissionCheckResult = $"OK: ユーザ '{user.UserName} ({user.UserId})' [取得元: {user.SourceChannel}] はコマンド '{Me.GetType().Name}' (db={_iParam.DbNumber}) を利用可能です。"
         End Sub
 
         Public Sub Execute() Implements ICommand.Execute
@@ -195,30 +185,19 @@ Namespace Commands
     End Class
 
     ' ====================================================================================
-    ' 1. 品目検索コマンド (ItemSearchCommand : Implements ICommand)
-    '    主に ClientController (Windows Forms) および ViewController から利用
+    ' 具体コマンドクラス群 (ICommand 実装 / LegacyMvc.PRM の IParam・OParam を使用)
     ' ====================================================================================
-    Public Class ItemSearchIParam
-        Inherits IParamBase
 
-        Public Property ConfiguredProvider As String = "SqlServer"
-        Public Property ConnectionString As String = String.Empty
-        Public Property Keyword As String = String.Empty
-    End Class
-
-    Public Class ItemSearchOParam
-        Inherits OParamBase
-
-        Public Property Items As New List(Of ItmTblEntity)()
-        Public Property ProviderStatus As String = String.Empty
-    End Class
-
+    <CommandDefinition("ITM.SCH", Db:=1, Description:="品目検索コマンド (ItemSearchCommand)")>
     Public Class ItemSearchCommand
         Inherits CommandBase(Of ItemSearchIParam, ItemSearchOParam)
 
-        Public Sub New(Optional iParam As ItemSearchIParam = Nothing)
+        Public Sub New()
+            MyBase.New(Nothing)
+        End Sub
+
+        Public Sub New(iParam As ItemSearchIParam)
             MyBase.New(iParam)
-            Me.ResponseType = "application/json"
         End Sub
 
         Protected Overrides Sub ExecuteCore()
@@ -229,34 +208,16 @@ Namespace Commands
         End Sub
     End Class
 
-    ' ====================================================================================
-    ' 2. 品目登録・更新コマンド (ItemSaveCommand : Implements ICommand)
-    '    主に ClientController (Windows Forms) から利用
-    ' ====================================================================================
-    Public Class ItemSaveIParam
-        Inherits IParamBase
-
-        Public Property ConfiguredProvider As String = "SqlServer"
-        Public Property ConnectionString As String = String.Empty
-        Public Property ItmCd As String = String.Empty
-        Public Property ItmNm As String = String.Empty
-        Public Property Category As String = String.Empty
-        Public Property UnitPrice As Decimal = 0D
-        Public Property StockQty As Integer = 0
-    End Class
-
-    Public Class ItemSaveOParam
-        Inherits OParamBase
-
-        Public Property SavedItem As ItmTblEntity
-    End Class
-
+    <CommandDefinition("ITM.SAV", Db:=1, Description:="品目登録・更新コマンド (ItemSaveCommand)")>
     Public Class ItemSaveCommand
         Inherits CommandBase(Of ItemSaveIParam, ItemSaveOParam)
 
-        Public Sub New(Optional iParam As ItemSaveIParam = Nothing)
+        Public Sub New()
+            MyBase.New(Nothing)
+        End Sub
+
+        Public Sub New(iParam As ItemSaveIParam)
             MyBase.New(iParam)
-            Me.ResponseType = "application/json"
         End Sub
 
         Public Overrides Sub Validate()
@@ -279,28 +240,16 @@ Namespace Commands
         End Sub
     End Class
 
-    ' ====================================================================================
-    ' 3. 図面検索コマンド (DrawingSearchCommand : Implements ICommand)
-    '    主に ViewController (Web ブラウザ) から利用
-    ' ====================================================================================
-    Public Class DrawingSearchIParam
-        Inherits IParamBase
-
-        Public Property Keyword As String = String.Empty
-    End Class
-
-    Public Class DrawingSearchOParam
-        Inherits OParamBase
-
-        Public Property Drawings As New List(Of DrawingRecord)()
-    End Class
-
+    <CommandDefinition("DRW.SCH", Db:=1, Description:="図面検索コマンド (DrawingSearchCommand)")>
     Public Class DrawingSearchCommand
         Inherits CommandBase(Of DrawingSearchIParam, DrawingSearchOParam)
 
-        Public Sub New(Optional iParam As DrawingSearchIParam = Nothing)
+        Public Sub New()
+            MyBase.New(Nothing)
+        End Sub
+
+        Public Sub New(iParam As DrawingSearchIParam)
             MyBase.New(iParam)
-            Me.ResponseType = "application/json"
         End Sub
 
         Protected Overrides Sub ExecuteCore()
@@ -309,32 +258,16 @@ Namespace Commands
         End Sub
     End Class
 
-    ' ====================================================================================
-    ' 4. 図面登録・更新コマンド (DrawingSaveCommand : Implements ICommand)
-    '    主に ViewController (Web ブラウザ) から利用
-    ' ====================================================================================
-    Public Class DrawingSaveIParam
-        Inherits IParamBase
-
-        Public Property DrawingNo As String = String.Empty
-        Public Property Title As String = String.Empty
-        Public Property ItmCd As String = String.Empty
-        Public Property BomNo As String = String.Empty
-        Public Property Revision As String = "Rev.A"
-    End Class
-
-    Public Class DrawingSaveOParam
-        Inherits OParamBase
-
-        Public Property SavedDrawing As DrawingRecord
-    End Class
-
+    <CommandDefinition("DRW.SAV", Db:=1, Description:="図面登録・更新コマンド (DrawingSaveCommand)")>
     Public Class DrawingSaveCommand
         Inherits CommandBase(Of DrawingSaveIParam, DrawingSaveOParam)
 
-        Public Sub New(Optional iParam As DrawingSaveIParam = Nothing)
+        Public Sub New()
+            MyBase.New(Nothing)
+        End Sub
+
+        Public Sub New(iParam As DrawingSaveIParam)
             MyBase.New(iParam)
-            Me.ResponseType = "application/json"
         End Sub
 
         Public Overrides Sub Validate()
@@ -355,35 +288,116 @@ Namespace Commands
         End Sub
     End Class
 
-    ' ====================================================================================
-    ' 5. 顧客照会コマンド (CustomerQueryCommand : Implements ICommand)
-    '    主に ClientController (Windows Forms) から利用
-    ' ====================================================================================
-    Public Class CustomerQueryIParam
-        Inherits IParamBase
-
-        Public Property CustomerId As Integer = 1
-    End Class
-
-    Public Class CustomerQueryOParam
-        Inherits OParamBase
-
-        Public Property CustomerId As Integer
-        Public Property CustomerName As String = String.Empty
-    End Class
-
+    <CommandDefinition("CUS.SCH", Db:=1, Description:="顧客照会コマンド (CustomerQueryCommand)")>
     Public Class CustomerQueryCommand
         Inherits CommandBase(Of CustomerQueryIParam, CustomerQueryOParam)
 
-        Public Sub New(Optional iParam As CustomerQueryIParam = Nothing)
+        Public Sub New()
+            MyBase.New(Nothing)
+        End Sub
+
+        Public Sub New(iParam As CustomerQueryIParam)
             MyBase.New(iParam)
-            Me.ResponseType = "application/json"
         End Sub
 
         Protected Overrides Sub ExecuteCore()
             _oParam.CustomerId = _iParam.CustomerId
             _oParam.CustomerName = $"株式会社レガシー商事 (ID: {_iParam.CustomerId})"
         End Sub
+    End Class
+
+    ' ====================================================================================
+    ' コマンドディスパッチャ (CommandDispatcher)
+    ' 1. レガシー方式: <command name="ITM.APP" command="LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL" db="1" />
+    '    の Config 定義から Type.GetType + Activator.CreateInstance で ICommand を生成
+    ' 2. 改善別案: <CommandDefinition("ITM.APP", Db:=1)> 属性から自動スキャン＆キャッシュして生成
+    ' ====================================================================================
+    Public Class CommandConfigEntry
+        Public Property Name As String = String.Empty
+        Public Property CommandTypeString As String = String.Empty
+        Public Property Db As Integer = 1
+        Public Property RegistrationSource As String = "Config (<command name=... />)"
+    End Class
+
+    Public NotInheritable Class CommandDispatcher
+        Private Shared ReadOnly ConfigMappings As New Dictionary(Of String, CommandConfigEntry)(StringComparer.OrdinalIgnoreCase)
+
+        Shared Sub New()
+            ' 1. Config (<command name="ITM.APP" command="LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL" db="1" />) の既定登録
+            RegisterConfigCommand("ITM.APP", "LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL", 1, "Config (<command name=""ITM.APP"" command=""LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL"" db=""1"">)")
+            RegisterConfigCommand("ITM.SCH", "LegacyMvc.MDL.Commands.ItemSearchCommand,LegacyMvc.MDL", 1, "Config (<command name=""ITM.SCH"" ... db=""1"">)")
+            RegisterConfigCommand("ITM.SAV", "LegacyMvc.MDL.Commands.ItemSaveCommand,LegacyMvc.MDL", 1, "Config (<command name=""ITM.SAV"" ... db=""1"">)")
+            RegisterConfigCommand("DRW.SCH", "LegacyMvc.MDL.Commands.DrawingSearchCommand,LegacyMvc.MDL", 1, "Config (<command name=""DRW.SCH"" ... db=""1"">)")
+            RegisterConfigCommand("DRW.SAV", "LegacyMvc.MDL.Commands.DrawingSaveCommand,LegacyMvc.MDL", 1, "Config (<command name=""DRW.SAV"" ... db=""1"">)")
+            RegisterConfigCommand("CUS.SCH", "LegacyMvc.MDL.Commands.CustomerQueryCommand,LegacyMvc.MDL", 1, "Config (<command name=""CUS.SCH"" ... db=""1"">)")
+
+            ' 2. 別案: <CommandDefinition> 属性によるアセンブリ自動検出 (Config 記述漏れ防止)
+            For Each t As Type In GetType(CommandDispatcher).Assembly.GetTypes()
+                Dim attrs = t.GetCustomAttributes(GetType(CommandDefinitionAttribute), False)
+                For Each attrObj As Object In attrs
+                    Dim attr As CommandDefinitionAttribute = DirectCast(attrObj, CommandDefinitionAttribute)
+                    If Not ConfigMappings.ContainsKey(attr.Name) Then
+                        RegisterConfigCommand(attr.Name, $"{t.FullName},{t.Assembly.GetName().Name}", attr.Db, "Attribute Auto-Discovery (<CommandDefinition>)")
+                    End If
+                Next
+            Next
+        End Sub
+
+        Private Sub New()
+        End Sub
+
+        Public Shared Sub RegisterConfigCommand(name As String, commandTypeString As String, db As Integer, Optional source As String = "Config")
+            ConfigMappings(name) = New CommandConfigEntry With {
+                .Name = name,
+                .CommandTypeString = commandTypeString,
+                .Db = db,
+                .RegistrationSource = source
+            }
+        End Sub
+
+        Public Shared Function GetRegisteredCommands() As List(Of CommandConfigEntry)
+            Return ConfigMappings.Values.OrderBy(Function(c) c.Name).ToList()
+        End Function
+
+        ''' <summary>
+        ''' コマンド名 (例: "ITM.APP") から Config を引き当て、LegacyMvc.MDL.dll の対象クラスをインスタンス化して返します。
+        ''' </summary>
+        Public Shared Function CreateCommand(
+            commandName As String,
+            iParamJson As JToken,
+            ByRef resolvedEntry As CommandConfigEntry) As ICommand
+
+            If String.IsNullOrWhiteSpace(commandName) OrElse Not ConfigMappings.TryGetValue(commandName.Trim(), resolvedEntry) Then
+                Throw New KeyNotFoundException($"コマンド名 '{commandName}' は Config (<command name=""..."" />) に登録されていません。登録済: {String.Join(", ", ConfigMappings.Keys)}")
+            End If
+
+            Dim targetType As Type = Type.GetType(resolvedEntry.CommandTypeString, throwOnError:=False, ignoreCase:=True)
+            If targetType Is Nothing Then
+                Dim classNameOnly As String = resolvedEntry.CommandTypeString.Split(","c)(0).Trim()
+                targetType = GetType(CommandDispatcher).Assembly.GetType(classNameOnly, throwOnError:=False, ignoreCase:=True)
+            End If
+
+            If targetType Is Nothing Then
+                Throw New TypeLoadException($"Config に指定されたコマンド型 '{resolvedEntry.CommandTypeString}' を LegacyMvc.MDL.dll からロードできませんでした。")
+            End If
+
+            Dim instance As Object = Activator.CreateInstance(targetType)
+            Dim cmd As ICommand = TryCast(instance, ICommand)
+            If cmd Is Nothing Then
+                Throw New InvalidOperationException($"型 '{targetType.FullName}' は LegacyMvc.PRM.ICommand を実装していません。")
+            End If
+
+            ' ApplyIParamJson メソッドがあれば呼び出して JSON から具体 IParam 型を復元
+            Dim applyMethod As MethodInfo = targetType.GetMethod("ApplyIParamJson", BindingFlags.Instance Or BindingFlags.Public)
+            If applyMethod IsNot Nothing Then
+                applyMethod.Invoke(cmd, New Object() {iParamJson, resolvedEntry.Db, resolvedEntry.Name})
+            Else
+                cmd.IParam.DbNumber = resolvedEntry.Db
+                cmd.IParam.CommandId = resolvedEntry.Name
+            End If
+
+            Return cmd
+        End Function
     End Class
 
 End Namespace

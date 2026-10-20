@@ -18,6 +18,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 共通プロジェクト (HttpClient ユーティリティ & LoginUser) と パラメータ定義プロジェクト (LegacyMvc.PRM) を参照 -->
+    <ProjectReference Include="..\Common.APP\Common.APP.vbproj" />
+    <ProjectReference Include="..\LegacyMvc.PRM\LegacyMvc.PRM.vbproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="client-settings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

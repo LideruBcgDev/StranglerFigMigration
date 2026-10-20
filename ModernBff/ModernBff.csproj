@@ -11,11 +11,14 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- サーバー側の実際のコマンド・DB実行処理を行う ModernBff.MDL (および LegacyMvc.MDL VB.NET) を参照 -->
+    <!-- 共通プロジェクト (Common.APP, LegacyMvc.PRM) およびサーバー側コマンド実行 (ModernBff.MDL, LegacyMvc.MDL) を参照 -->
+    <ProjectReference Include="..\Common.APP\Common.APP.vbproj" />
+    <ProjectReference Include="..\LegacyMvc.PRM\LegacyMvc.PRM.vbproj" />
     <ProjectReference Include="..\ModernBff.MDL\ModernBff.MDL.csproj" />
     <ProjectReference Include="..\LegacyMvc.MDL\LegacyMvc.MDL.vbproj" />
   </ItemGroup>

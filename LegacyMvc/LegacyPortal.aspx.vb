@@ -5,6 +5,7 @@ Imports System.Web.UI.WebControls
 Imports LegacyMvc.MDL.Commands
 Imports LegacyMvc.MDL.Data
 Imports LegacyMvc.Models
+Imports LegacyMvc.PRM
 
 Public Partial Class LegacyPortal
     Inherits Page

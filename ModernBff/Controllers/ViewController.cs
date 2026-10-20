@@ -1,11 +1,15 @@
 using System.Security.Claims;
 using System.Security.Principal;
+using System.Text.Json;
+using Common.APP;
 using LegacyMvc.MDL.Commands;
+using LegacyMvc.PRM;
 using Microsoft.AspNetCore.Mvc;
 using ModernBff.Data;
 using ModernBff.MDL.Commands;
 using ModernBff.Models;
 using ModernBff.Services;
+using Newtonsoft.Json.Linq;
 
 namespace ModernBff.Controllers;
 
@@ -40,7 +44,7 @@ public class ViewController : ControllerBase
     /// ViewController 用: IIdentity (HttpContext.User.Identity) より LoginUser を取得し command.IParam.LoginUser に設定します。
     /// Redis 共有セッションがある場合は HttpContext.User (ClaimsPrincipal / IIdentity) にブリッジした上で取得します。
     /// </summary>
-    private async Task<(LoginUser? RedisUser, string Source)> PopulateViewIParamFromIIdentityAsync(IParamBase iParam)
+    private async Task<(ModernBff.Models.LoginUser? RedisUser, string Source)> PopulateViewIParamFromIIdentityAsync(IParamBase iParam)
     {
         string? token = _loginUserStore.ExtractToken(HttpContext);
         var (redisUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
@@ -365,6 +369,100 @@ public class ViewController : ControllerBase
             IParamLoginUser = viewParam.LoginUser,
             LoginUserLookupSource = loginSource,
             Result = result,
+            TimestampUtc = DateTime.UtcNow.ToString("O")
+        });
+    }
+
+    /// <summary>
+    /// POST /View/execute (または GET /View/execute?commandName=ITM.APP)
+    /// 【Web ブラウザ用コマンド名指定ディスパッチ】
+    /// &lt;command name="ITM.APP" command="LegacyMvc.MDL.CommandsLegacyApprovalStore,LegacyMvc.MDL" db="1"&gt;
+    /// ViewController では IIdentity より LoginUser を取得して command.IParam.LoginUser に設定し、
+    /// Validate() -> Execute() を実行します。
+    /// </summary>
+    [HttpPost("execute")]
+    [HttpGet("execute")]
+    public async Task<IActionResult> ExecuteByCommandName(
+        [FromBody] ClientCommandExecuteRequestDto? body = null,
+        [FromQuery] string? commandName = null)
+    {
+        string resolvedName = !string.IsNullOrWhiteSpace(body?.CommandName)
+            ? body!.CommandName
+            : (!string.IsNullOrWhiteSpace(commandName) ? commandName! : "ITM.APP");
+
+        JToken? iParamToken = null;
+        if (body?.IParam != null && body.IParam.Value.ValueKind != JsonValueKind.Undefined && body.IParam.Value.ValueKind != JsonValueKind.Null)
+        {
+            iParamToken = JToken.Parse(body.IParam.Value.GetRawText());
+        }
+
+        CommandConfigEntry? entry = null;
+        var cmd = CommandDispatcher.CreateCommand(resolvedName, iParamToken, ref entry);
+
+        string provider = _configuration["Database:Provider"] ?? "SqlServer";
+        string connStr = _configuration.GetConnectionString(provider) ?? string.Empty;
+        if (cmd.IParam is ItemAppIParam appParam && string.IsNullOrWhiteSpace(appParam.ConfiguredProvider))
+        {
+            appParam.ConfiguredProvider = provider;
+            appParam.ConnectionString = connStr;
+        }
+        else if (cmd.IParam is ItemSearchIParam schParam && string.IsNullOrWhiteSpace(schParam.ConfiguredProvider))
+        {
+            schParam.ConfiguredProvider = provider;
+            schParam.ConnectionString = connStr;
+        }
+        else if (cmd.IParam is ItemSaveIParam savParam && string.IsNullOrWhiteSpace(savParam.ConfiguredProvider))
+        {
+            savParam.ConfiguredProvider = provider;
+            savParam.ConnectionString = connStr;
+        }
+
+        var (_, loginSource) = await PopulateViewIParamFromIIdentityAsync(cmd.IParam);
+
+        try
+        {
+            cmd.Validate();
+            cmd.Execute();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                Controller = "ModernBff.Controllers.ViewController (RoutePrefix: View)",
+                CommandName = entry?.Name ?? resolvedName,
+                CommandType = entry?.CommandTypeString ?? cmd.GetType().FullName,
+                DbSlot = entry?.Db ?? 1,
+                ResponseType = cmd.ResponseType,
+                IParamType = cmd.IParam.GetType().FullName,
+                OParamType = cmd.OParam.GetType().FullName,
+                IParam = cmd.IParam,
+                OParam = cmd.OParam,
+                Error = ex.Message
+            });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new
+            {
+                Controller = "ModernBff.Controllers.ViewController (RoutePrefix: View)",
+                CommandName = entry?.Name ?? resolvedName,
+                Error = ex.Message
+            });
+        }
+
+        return Ok(new
+        {
+            Controller = "ModernBff.Controllers.ViewController (RoutePrefix: View)",
+            AccessedFrom = "Web Browser (Command Dispatcher via IIdentity)",
+            CommandName = entry?.Name ?? resolvedName,
+            CommandConfig = $"<command name=\"{entry?.Name}\" command=\"{entry?.CommandTypeString}\" db=\"{entry?.Db}\">",
+            DbSlot = entry?.Db ?? 1,
+            ResponseType = cmd.ResponseType,
+            LoginUserLookupSource = loginSource,
+            iParamType = cmd.IParam.GetType().FullName,
+            oParamType = cmd.OParam.GetType().FullName,
+            iParam = cmd.IParam,
+            oParam = cmd.OParam,
             TimestampUtc = DateTime.UtcNow.ToString("O")
         });
     }

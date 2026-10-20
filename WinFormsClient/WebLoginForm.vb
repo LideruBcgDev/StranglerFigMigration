@@ -1,10 +1,11 @@
 Imports System.Text.Json
+Imports Common.APP
 Imports Microsoft.Web.WebView2.Core
 Imports Microsoft.Web.WebView2.WinForms
 
 ''' <summary>
 ''' WebView2 を使用して Gateway 経由で ModernBff の Web ログイン画面 (/login) を表示し、
-''' ログイン成功時に発行された loginuser（ユーザ・組織・権限・セッショントークン）を受け取るダイアログ。
+''' ログイン成功時に発行された Common.APP.LoginUser（ユーザ・組織・権限・セッショントークン）を受け取るダイアログ。
 ''' </summary>
 Public Class WebLoginForm
     Inherits Form
@@ -16,6 +17,7 @@ Public Class WebLoginForm
     Public Property SessionToken As String = String.Empty
     Public Property UserSummary As String = String.Empty
     Public Property RawLoginResponseJson As String = String.Empty
+    Public Property AuthenticatedUser As LoginUser = Nothing
 
     Public Sub New(gatewayBaseUrl As String)
         _loginUrl = gatewayBaseUrl.TrimEnd("/"c) & "/login?clientWebView=true"
@@ -94,7 +96,17 @@ Public Class WebLoginForm
                         End If
 
                         SessionToken = token
-                        UserSummary = $"{userName} ({userId}) | 組織: [{orgCode}] {orgName} | 権限: {String.Join(", ", rolesList)}"
+                        AuthenticatedUser = New LoginUser() With {
+                            .SessionToken = token,
+                            .UserId = userId,
+                            .UserName = userName,
+                            .OrganizationCode = orgCode,
+                            .OrganizationName = orgName,
+                            .Roles = rolesList,
+                            .IsAuthenticated = True,
+                            .SourceChannel = "WinForms WebView2 Login (Common.APP.LoginUser)"
+                        }
+                        UserSummary = AuthenticatedUser.ToSummaryString()
                     End If
 
                     Me.DialogResult = DialogResult.OK

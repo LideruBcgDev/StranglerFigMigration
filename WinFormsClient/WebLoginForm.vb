@@ -18,7 +18,7 @@ Public Class WebLoginForm
     Public Property RawLoginResponseJson As String = String.Empty
 
     Public Sub New(gatewayBaseUrl As String)
-        _loginUrl = gatewayBaseUrl.TrimEnd("/"c) & "/login"
+        _loginUrl = gatewayBaseUrl.TrimEnd("/"c) & "/login?clientWebView=true"
         InitializeComponent()
     End Sub
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Strangler Fig 共通 Web ログイン (Password / OIDC / SAML 2.0)</title>
+    <title>Strangler Fig 共通 Web ログイン (USR_TBL / シングルサインイン SAML・OIDC)</title>
     <style>
         :root {
             --bg: #0f172a;
@@ -11,6 +11,8 @@
             --border: #334155;
             --primary: #3b82f6;
             --primary-hover: #2563eb;
+            --sso: #8b5cf6;
+            --sso-hover: #7c3aed;
             --success: #10b981;
             --text: #f8fafc;
             --muted: #94a3b8;
@@ -29,7 +31,7 @@
         }
         .login-container {
             width: 100%;
-            max-width: 560px;
+            max-width: 580px;
             background: var(--card);
             border: 1px solid var(--border);
             border-radius: 12px;
@@ -47,7 +49,18 @@
             margin-bottom: 8px;
         }
         h1 { margin: 0 0 6px 0; font-size: 21px; }
-        p.subtitle { margin: 0 0 16px 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+        p.subtitle { margin: 0 0 14px 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+        .return-url-banner {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.45);
+            color: #fde68a;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 12px;
+            margin-bottom: 14px;
+            display: none;
+        }
+        .return-url-banner.active { display: block; }
         .presets { margin-bottom: 14px; }
         .presets-title { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
         .preset-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -65,7 +78,7 @@
         .preset-btn strong { display: block; color: #60a5fa; margin-bottom: 2px; }
         .form-group { margin-bottom: 12px; }
         label { display: block; font-size: 12.5px; margin-bottom: 5px; color: #cbd5e1; }
-        input {
+        input, select {
             width: 100%;
             padding: 9px 12px;
             border-radius: 8px;
@@ -87,34 +100,45 @@
             margin-top: 4px;
         }
         button.submit-btn:hover { background: var(--primary-hover); }
-        .sso-divider {
-            margin: 18px 0 12px 0;
-            text-align: center;
-            font-size: 12px;
-            color: var(--muted);
-            border-top: 1px solid var(--border);
+        .sso-section {
+            margin-top: 16px;
             padding-top: 14px;
+            border-top: 1px solid var(--border);
         }
-        .sso-buttons {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
+        .sso-section.only-sso {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: none;
         }
-        .sso-btn {
-            padding: 10px 12px;
+        .sso-primary-btn {
+            width: 100%;
+            padding: 12px 14px;
             border-radius: 8px;
-            border: 1px solid #475569;
-            background: #0f172a;
-            color: #f8fafc;
-            font-size: 12.5px;
-            font-weight: 600;
+            border: 1px solid #a78bfa;
+            background: linear-gradient(135deg, #6d28d9, #4f46e5);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 700;
             cursor: pointer;
             text-align: center;
+            margin-top: 6px;
         }
-        .sso-btn.oidc { border-color: #38bdf8; color: #7dd3fc; }
-        .sso-btn.oidc:hover { background: rgba(56, 189, 248, 0.15); }
-        .sso-btn.saml { border-color: #a855f7; color: #d8b4fe; }
-        .sso-btn.saml:hover { background: rgba(168, 85, 247, 0.15); }
+        .sso-primary-btn:hover { opacity: 0.93; }
+        .config-panel {
+            margin-top: 18px;
+            padding: 12px;
+            border-radius: 8px;
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px dashed #475569;
+            font-size: 12px;
+        }
+        .config-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+        .config-row input[type="checkbox"] { width: auto; margin-right: 6px; }
         .result-box {
             margin-top: 16px;
             padding: 12px;
@@ -126,18 +150,26 @@
         }
         .result-box.active { display: block; }
         .result-title { font-weight: 600; color: var(--success); margin-bottom: 6px; }
-        pre { margin: 0; white-space: pre-wrap; word-break: break-all; font-family: Consolas, monospace; color: #e2e8f0; max-height: 180px; overflow: auto; }
+        pre { margin: 0; white-space: pre-wrap; word-break: break-all; font-family: Consolas, monospace; color: #e2e8f0; max-height: 170px; overflow: auto; }
+        a.deeplink { color: #38bdf8; text-decoration: none; }
+        a.deeplink:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
     <div class="login-container">
-        <span class="badge">ModernBff 統合認証 (USR_TBL / OIDC / SAML 2.0) &amp; Redis 共有セッション</span>
+        <span class="badge">ModernBff 統合ログイン画面 (enableNormalLogin / autoRedirectToIdpOnLogin 対応)</span>
         <h1>Strangler Fig 共通 Web ログイン</h1>
         <p class="subtitle">
-            レガシー側にあった SAML / OIDC 認証を廃止し、モダン Web サイト (<code>ModernBff</code>) に集約しました。<br />
-            どの認証方式でも <code>USR_TBL</code> の有効フラグと組織・権限を引き当て、Redis に共通 <code>loginuser</code> を発行します。
+            未ログイン時に保護URLへアクセスするとこの画面に強制遷移し、ログイン完了後に元のURLへ自動遷移します。
         </p>
 
+        <!-- returnUrl が指定されている場合の通知バナー -->
+        <div class="return-url-banner" id="returnUrlBanner">
+            <strong>【未ログイン強制遷移】</strong> ログイン完了後、以下の指定URLへ自動遷移して画面を表示します：<br />
+            <code id="returnUrlText" style="color:#fff;font-weight:700;"></code>
+        </div>
+
+        <!-- 検証用アカウント選択 -->
         <div class="presets">
             <div class="presets-title">対象ユーザ選択（USR_TBL 登録アカウント / パスワード共通: <code>pass123</code>）</div>
             <div class="preset-buttons">
@@ -147,39 +179,64 @@
                 </button>
                 <button type="button" class="preset-btn" onclick="selectPreset('suzuki')">
                     <strong>suzuki (鈴木 花子)</strong>
-                    CS推進室<br />Operator
+                    技術開発部<br />Engineer
                 </button>
                 <button type="button" class="preset-btn" onclick="selectPreset('sato')">
                     <strong>sato (佐藤 健一)</strong>
-                    内部監査室<br />Auditor / Legacy
+                    品質保証部<br />QualityAssurance
                 </button>
             </div>
         </div>
 
-        <form id="loginForm" onsubmit="handlePasswordLogin(event)">
-            <div class="form-group">
-                <label for="userId">ユーザID (USR_TBL.USR_ID / IdP NameID)</label>
-                <input type="text" id="userId" value="yamada" required />
-            </div>
-            <div class="form-group">
-                <label for="password">パスワード (通常ログイン時のみ使用)</label>
-                <input type="password" id="password" value="pass123" required />
-            </div>
-            <button type="submit" class="submit-btn" id="loginBtn">① 通常ログイン (USR_TBL ID/Password)</button>
-        </form>
-
-        <div class="sso-divider">
-            または モダン Web サイトに統合された SSO 認証 (OIDC / SAML 2.0) でログイン
+        <!-- 1. 通常ログインセクション (enableNormalLogin = true の場合のみ表示) -->
+        <div id="normalLoginSection">
+            <form id="loginForm" onsubmit="handlePasswordLogin(event)">
+                <div class="form-group">
+                    <label for="userId">ユーザID (USR_TBL.USR_ID)</label>
+                    <input type="text" id="userId" value="yamada" required />
+                </div>
+                <div class="form-group">
+                    <label for="password">パスワード</label>
+                    <input type="password" id="password" value="pass123" required />
+                </div>
+                <button type="submit" class="submit-btn" id="loginBtn">ユーザIDとパスワードでログイン</button>
+            </form>
         </div>
-        <div class="sso-buttons">
-            <button type="button" class="sso-btn oidc" onclick="handleSsoLogin('OIDC')">
-                ② OIDC (OpenID Connect) 認証<br/>
-                <span style="font-size:10.5px;font-weight:normal;color:#94a3b8;">(/api/bff/auth/sso [OIDC])</span>
+
+        <!-- 2. シングルサインイン (SAML / OIDC) セクション -->
+        <div class="sso-section" id="ssoSection">
+            <div class="form-group" id="idpSelectGroup">
+                <label for="idpProviderSelect">シングルサインイン連携先 IdP (SAML 2.0 / OIDC 複数登録対応)</label>
+                <select id="idpProviderSelect"></select>
+            </div>
+            <button type="button" class="sso-primary-btn" onclick="handleSingleSignOn()">
+                シングルサインイン (SAML / OIDC でログイン)
             </button>
-            <button type="button" class="sso-btn saml" onclick="handleSsoLogin('SAML2')">
-                ③ SAML 2.0 Assertion 認証<br/>
-                <span style="font-size:10.5px;font-weight:normal;color:#94a3b8;">(/api/bff/auth/saml2/acs)</span>
-            </button>
+        </div>
+
+        <!-- 3. 設定パラメータ (enableNormalLogin / autoRedirectToIdpOnLogin) 確認・切替パネル -->
+        <div class="config-panel">
+            <div style="font-weight:700;color:#93c5fd;margin-bottom:6px;">
+                ⚙ 認証設定パラメータ (<code>appsettings.json</code> / 動的切替検証)
+            </div>
+            <div class="config-row">
+                <label style="margin:0;cursor:pointer;">
+                    <input type="checkbox" id="chkEnableNormalLogin" onchange="applyRuntimeConfig()" checked />
+                    <code>enableNormalLogin</code> (False時はシングルサインインボタンのみ表示)
+                </label>
+            </div>
+            <div class="config-row">
+                <label style="margin:0;cursor:pointer;">
+                    <input type="checkbox" id="chkAutoRedirect" onchange="applyRuntimeConfig()" />
+                    <code>autoRedirectToIdpOnLogin</code> (True時はログイン画面を出さず直接SAML/OIDCへ遷移)
+                </label>
+            </div>
+            <div style="margin-top:8px;padding-top:6px;border-top:1px solid #334155;font-size:11.5px;color:#cbd5e1;">
+                🔍 <strong>DeepLink 強制ログイン遷移テスト:</strong><br/>
+                <a class="deeplink" href="/web/view/drawings?drw_no='drw004'" onclick="return testUnauthenticatedDeepLink(event)">
+                    👉 未ログイン状態で <code>/web/view/drawings?drw_no='drw004'</code> にアクセスする
+                </a>
+            </div>
         </div>
 
         <div class="result-box" id="resultBox">
@@ -189,24 +246,113 @@
     </div>
 
     <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const returnUrl = urlParams.get('returnUrl') || '';
+        const forceShowLogin = urlParams.get('forceShowLogin') === 'true';
+        let currentSelectedUserId = 'yamada';
+
+        if (returnUrl) {
+            const banner = document.getElementById('returnUrlBanner');
+            const textEl = document.getElementById('returnUrlText');
+            banner.classList.add('active');
+            textEl.textContent = returnUrl;
+        }
+
         function selectPreset(id) {
-            document.getElementById('userId').value = id;
-            document.getElementById('password').value = 'pass123';
+            currentSelectedUserId = id;
+            const userInput = document.getElementById('userId');
+            if (userInput) userInput.value = id;
+            const passInput = document.getElementById('password');
+            if (passInput) passInput.value = 'pass123';
+        }
+
+        async function loadAuthConfig() {
+            try {
+                const res = await fetch('/api/bff/auth/config');
+                const cfg = await res.json();
+
+                document.getElementById('chkEnableNormalLogin').checked = !!cfg.enableNormalLogin;
+                document.getElementById('chkAutoRedirect').checked = !!cfg.autoRedirectToIdpOnLogin;
+
+                // IdP プロバイダ一覧の反映
+                const sel = document.getElementById('idpProviderSelect');
+                sel.innerHTML = '';
+                (cfg.providers || []).forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.providerId;
+                    opt.dataset.protocol = p.protocol;
+                    opt.textContent = `${p.displayName} [${p.protocol}]`;
+                    if (p.providerId === cfg.defaultSsoProviderId || p.isPrimary) {
+                        opt.selected = true;
+                    }
+                    sel.appendChild(opt);
+                });
+
+                applyUiByConfig(cfg.enableNormalLogin);
+
+                // autoRedirectToIdpOnLogin = true の場合はログイン画面を表示せず直接 SAML/OIDC ログインを実行
+                if (cfg.autoRedirectToIdpOnLogin && !forceShowLogin) {
+                    await handleSingleSignOn();
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function applyUiByConfig(enableNormalLogin) {
+            const normalSec = document.getElementById('normalLoginSection');
+            const ssoSec = document.getElementById('ssoSection');
+            if (enableNormalLogin) {
+                normalSec.style.display = 'block';
+                ssoSec.classList.remove('only-sso');
+            } else {
+                normalSec.style.display = 'none';
+                ssoSec.classList.add('only-sso');
+            }
+        }
+
+        async function applyRuntimeConfig() {
+            const enableNormalLogin = document.getElementById('chkEnableNormalLogin').checked;
+            const autoRedirectToIdpOnLogin = document.getElementById('chkAutoRedirect').checked;
+            const defaultSsoProviderId = document.getElementById('idpProviderSelect').value;
+
+            await fetch('/api/bff/auth/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    enableNormalLogin,
+                    autoRedirectToIdpOnLogin,
+                    defaultSsoProviderId
+                })
+            });
+
+            applyUiByConfig(enableNormalLogin);
         }
 
         async function handlePasswordLogin(e) {
             e.preventDefault();
+            const uid = document.getElementById('userId').value || currentSelectedUserId;
+            const pwd = document.getElementById('password').value;
             await sendAuthRequest('/api/bff/auth/login', {
-                userId: document.getElementById('userId').value,
-                password: document.getElementById('password').value
+                userId: uid,
+                password: pwd,
+                returnUrl: returnUrl
             });
         }
 
-        async function handleSsoLogin(protocol) {
-            const nameId = document.getElementById('userId').value || 'yamada';
+        async function handleSingleSignOn() {
+            const sel = document.getElementById('idpProviderSelect');
+            const providerId = sel.value || 'oidc-entra-primary';
+            const selectedOpt = sel.options[sel.selectedIndex];
+            const protocol = selectedOpt ? selectedOpt.dataset.protocol : 'OIDC';
+            const uidEl = document.getElementById('userId');
+            const nameId = (uidEl && uidEl.value) ? uidEl.value : currentSelectedUserId;
+
             await sendAuthRequest('/api/bff/auth/sso', {
+                providerId: providerId,
                 protocol: protocol,
-                nameId: nameId
+                nameId: nameId,
+                returnUrl: returnUrl
             });
         }
 
@@ -230,12 +376,21 @@
                     resultTitle.textContent = '✓ 認証成功 (' + (data.authenticationMethod || 'USR_TBL') + ')';
                     resultJson.textContent = JSON.stringify(data, null, 2);
 
+                    // 1. WinForms WebView2 からのログインの場合
                     if (window.chrome && window.chrome.webview) {
                         window.chrome.webview.postMessage(JSON.stringify({
                             type: 'STRANGLER_LOGIN_SUCCESS',
                             payload: data
                         }));
+                        return;
                     }
+
+                    // 2. ブラウザからのログインの場合: returnUrl (例: /web/view/drawings?drw_no='drw004') へ自動遷移
+                    const targetUrl = returnUrl || data.returnUrl || '/legacy-drawings';
+                    resultTitle.textContent += ` -> ${targetUrl} へ遷移します...`;
+                    setTimeout(() => {
+                        window.location.href = targetUrl;
+                    }, 450);
                 } else {
                     resultTitle.style.color = '#f87171';
                     resultTitle.textContent = '✗ 認証失敗';
@@ -248,6 +403,15 @@
                 resultJson.textContent = err.toString();
             }
         }
+
+        async function testUnauthenticatedDeepLink(e) {
+            e.preventDefault();
+            await fetch('/api/bff/auth/logout', { method: 'POST' });
+            window.location.href = "/web/view/drawings?drw_no='drw004'";
+            return false;
+        }
+
+        loadAuthConfig();
     </script>
 </body>
 </html>

@@ -96,6 +96,17 @@ Namespace Commands
                 .ApprovedOrg = Nothing,
                 .ApprovedAtUtc = Nothing
             }
+            DrawingTable("drw004") = New DrawingRecord With {
+                .DrawingNo = "drw004",
+                .BomNo = "BOM-2026-001",
+                .ItmCd = "ITM-001",
+                .Title = "第4世代 制御ユニット回路図 (DeepLink検証用 drw004)",
+                .Revision = "Rev.C",
+                .ApprovalStatus = "PENDING (承認待ち)",
+                .ApprovedBy = Nothing,
+                .ApprovedOrg = Nothing,
+                .ApprovedAtUtc = Nothing
+            }
         End Sub
 
         Public Shared Function GetAllBoms() As List(Of BomRecord)
@@ -105,12 +116,14 @@ Namespace Commands
         Public Shared Function GetAllDrawings(Optional keyword As String = Nothing) As List(Of DrawingRecord)
             Dim list = DrawingTable.Values.Select(AddressOf CloneDrawing)
             If Not String.IsNullOrWhiteSpace(keyword) Then
-                Dim kw As String = keyword.Trim().ToLowerInvariant()
-                list = list.Where(Function(d) _
-                    (d.DrawingNo IsNot Nothing AndAlso d.DrawingNo.ToLowerInvariant().Contains(kw)) OrElse
-                    (d.Title IsNot Nothing AndAlso d.Title.ToLowerInvariant().Contains(kw)) OrElse
-                    (d.ItmCd IsNot Nothing AndAlso d.ItmCd.ToLowerInvariant().Contains(kw)) OrElse
-                    (d.BomNo IsNot Nothing AndAlso d.BomNo.ToLowerInvariant().Contains(kw)))
+                Dim kw As String = keyword.Trim().Trim("'"c, """"c).ToLowerInvariant()
+                If Not String.IsNullOrWhiteSpace(kw) Then
+                    list = list.Where(Function(d) _
+                        (d.DrawingNo IsNot Nothing AndAlso d.DrawingNo.ToLowerInvariant().Contains(kw)) OrElse
+                        (d.Title IsNot Nothing AndAlso d.Title.ToLowerInvariant().Contains(kw)) OrElse
+                        (d.ItmCd IsNot Nothing AndAlso d.ItmCd.ToLowerInvariant().Contains(kw)) OrElse
+                        (d.BomNo IsNot Nothing AndAlso d.BomNo.ToLowerInvariant().Contains(kw)))
+                End If
             End If
             Return list.OrderBy(Function(d) d.DrawingNo).ToList()
         End Function

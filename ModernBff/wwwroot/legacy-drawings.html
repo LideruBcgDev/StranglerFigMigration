@@ -8,9 +8,21 @@
         body { margin: 0; font-family: "Segoe UI", "Yu Gothic UI", Meiryo, sans-serif; background: #f1f5f9; color: #1e293b; }
         header { background: #1e293b; color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
         header h1 { margin: 0; font-size: 18px; }
-        nav a { color: #93c5fd; margin-left: 16px; text-decoration: none; font-size: 13px; }
+        nav a { color: #93c5fd; margin-left: 14px; text-decoration: none; font-size: 13px; }
         nav a:hover { text-decoration: underline; }
-        .container { max-width: 1100px; margin: 20px auto; padding: 0 16px; display: grid; grid-template-columns: 340px 1fr; gap: 20px; }
+        .deeplink-banner {
+            max-width: 1100px;
+            margin: 14px auto 0 auto;
+            padding: 10px 16px;
+            background: #ecfdf5;
+            border: 1px solid #10b981;
+            border-radius: 8px;
+            color: #065f46;
+            font-size: 13px;
+            display: none;
+        }
+        .deeplink-banner.active { display: flex; align-items: center; justify-content: space-between; }
+        .container { max-width: 1100px; margin: 16px auto; padding: 0 16px; display: grid; grid-template-columns: 340px 1fr; gap: 20px; }
         .card { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 18px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
         h2 { margin: 0 0 12px 0; font-size: 16px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
         .form-group { margin-bottom: 12px; }
@@ -20,10 +32,13 @@
         button:hover { background: #1d4ed8; }
         button.secondary { background: #059669; }
         button.secondary:hover { background: #047857; }
+        button.logout-btn { background: #dc2626; font-size: 12px; padding: 6px 10px; margin-left: 12px; }
+        button.logout-btn:hover { background: #b91c1c; }
         .search-bar { display: flex; gap: 8px; margin-bottom: 14px; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
         th, td { border-bottom: 1px solid #e2e8f0; padding: 10px 8px; text-align: left; }
         th { background: #f8fafc; color: #475569; font-weight: 600; }
+        tr.highlight-row { background: #fef9c3; }
         .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
         .badge.approved { background: #dcfce7; color: #166534; }
         .badge.pending { background: #fef3c7; color: #92400e; }
@@ -33,15 +48,22 @@
 <body>
     <header>
         <div>
-            <h1>[レガシー側 Web画面] 図面管理 (DRW_TBL) - LegacyMvc.MDL (VB.NET)</h1>
+            <h1>[レガシー側 Web画面] 図面管理 (DRW_TBL) - <code>/web/view/drawings</code> &amp; <code>/legacy-drawings</code></h1>
         </div>
         <nav>
-            <a href="/login">共通ログイン</a>
-            <a href="/legacy-drawings"><strong>レガシー図面管理(DRW_TBL)</strong></a>
-            <a href="/projects">モダン案件統合管理(PRJ_TBL)</a>
-            <a href="/workflows">モダンワークフロー管理(WF_TBL)</a>
+            <span id="loginUserInfo" style="font-size:12px;color:#bbf7d0;"></span>
+            <a href="/web/view/drawings?drw_no='drw004'"><strong>図面DeepLink(drw004)</strong></a>
+            <a href="/legacy-drawings">図面一覧(全件)</a>
+            <a href="/projects">モダン案件統合(PRJ_TBL)</a>
+            <a href="/workflows">ワークフロー(WF_TBL)</a>
+            <button type="button" class="logout-btn" onclick="logoutAndTestDeepLink()">ログアウトしてDeepLink強制遷移を検証</button>
         </nav>
     </header>
+
+    <div class="deeplink-banner" id="deepLinkBanner">
+        <div id="deepLinkBannerText"></div>
+        <button type="button" onclick="clearDeepLinkFilter()" style="background:#047857;font-size:12px;padding:5px 10px;">全図面を表示</button>
+    </div>
 
     <div class="container">
         <!-- 左ペイン: 図面の登録・更新 -->
@@ -50,11 +72,11 @@
             <form onsubmit="registerDrawing(event)">
                 <div class="form-group">
                     <label>図面番号 (DRAWING_NO) *</label>
-                    <input type="text" id="drawingNo" value="DRW-2026-004" required />
+                    <input type="text" id="drawingNo" value="drw004" required />
                 </div>
                 <div class="form-group">
                     <label>図面名称 (TITLE) *</label>
-                    <input type="text" id="title" value="次世代センサー基板配線図" required />
+                    <input type="text" id="title" value="第4世代 制御ユニット回路図 (drw004)" required />
                 </div>
                 <div class="form-group">
                     <label>対象品目コード (ITM_CD)</label>
@@ -66,7 +88,7 @@
                 </div>
                 <div class="form-group">
                     <label>改訂番号 (REVISION)</label>
-                    <input type="text" id="revision" value="Rev.A" />
+                    <input type="text" id="revision" value="Rev.C" />
                 </div>
                 <button type="submit" style="width:100%;">DRW_TBL に登録・更新</button>
                 <div class="status-msg" id="regStatus"></div>
@@ -77,9 +99,9 @@
         <div class="card">
             <h2>図面マスタ (DRW_TBL) 検索・一覧</h2>
             <div class="search-bar">
-                <input type="text" id="searchKeyword" placeholder="図面番号・名称・品目コードで検索..." />
+                <input type="text" id="searchKeyword" placeholder="図面番号 (例: drw004)・名称・品目コードで検索..." />
                 <button type="button" onclick="loadDrawings()">検索</button>
-                <button type="button" onclick="document.getElementById('searchKeyword').value='';loadDrawings()">全件表示</button>
+                <button type="button" onclick="clearDeepLinkFilter()">全件表示</button>
             </div>
             <table>
                 <thead>
@@ -100,10 +122,23 @@
     </div>
 
     <script>
+        function getInitialDrwNoFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            const raw = params.get('drw_no') || params.get('drawingNo') || params.get('keyword') || '';
+            // シングルクォートやダブルクォート ('drw004' -> drw004) を除去
+            return raw.replace(/^['"]+|['"]+$/g, '').trim();
+        }
+
         async function loadDrawings() {
-            const kw = document.getElementById('searchKeyword').value;
+            const kw = document.getElementById('searchKeyword').value.replace(/^['"]+|['"]+$/g, '').trim();
             const res = await fetch('/View/drawings?keyword=' + encodeURIComponent(kw));
             const data = await res.json();
+
+            if (data.currentLoginUser) {
+                document.getElementById('loginUserInfo').textContent =
+                    `ログイン中: ${data.currentLoginUser.userName} (${data.currentLoginUser.userId})`;
+            }
+
             const tbody = document.getElementById('drawingTableBody');
             tbody.innerHTML = '';
 
@@ -111,6 +146,9 @@
                 const isApproved = (d.approvalStatus || '').includes('APPROVED');
                 const badgeClass = isApproved ? 'badge approved' : 'badge pending';
                 const tr = document.createElement('tr');
+                if (kw && d.drawingNo && d.drawingNo.toLowerCase() === kw.toLowerCase()) {
+                    tr.className = 'highlight-row';
+                }
                 tr.innerHTML = `
                     <td><strong>${d.drawingNo}</strong></td>
                     <td>${d.title}</td>
@@ -125,6 +163,12 @@
                 `;
                 tbody.appendChild(tr);
             });
+        }
+
+        function clearDeepLinkFilter() {
+            document.getElementById('searchKeyword').value = '';
+            document.getElementById('deepLinkBanner').classList.remove('active');
+            loadDrawings();
         }
 
         async function registerDrawing(e) {
@@ -161,7 +205,24 @@
             alert((data.message || '申請しました') + '\nワークフロー管理画面 (/workflows) で照査・承認を行えます。');
         }
 
-        loadDrawings();
+        async function logoutAndTestDeepLink() {
+            await fetch('/api/bff/auth/logout', { method: 'POST' });
+            // 未ログイン状態で /web/view/drawings?drw_no='drw004' へアクセス -> 1. /login へ強制遷移 -> 2. ログイン完了後に drw004 を表示
+            window.location.href = "/web/view/drawings?drw_no='drw004'";
+        }
+
+        // 初期表示時: URL に ?drw_no='drw004' が指定されていれば自動セットして該当図面を表示
+        (function init() {
+            const initialDrwNo = getInitialDrwNoFromUrl();
+            if (initialDrwNo) {
+                document.getElementById('searchKeyword').value = initialDrwNo;
+                const banner = document.getElementById('deepLinkBanner');
+                const bannerText = document.getElementById('deepLinkBannerText');
+                banner.classList.add('active');
+                bannerText.innerHTML = `✓ 指定URL (<code>${window.location.pathname}${window.location.search}</code>) のパラメータ <strong>drw_no='${initialDrwNo}'</strong> に基づき図面を表示しています。`;
+            }
+            loadDrawings();
+        })();
     </script>
 </body>
 </html>

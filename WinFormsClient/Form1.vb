@@ -219,14 +219,55 @@ Public Class Form1
         Me.Controls.Add(txtResult)
     End Sub
 
+    Protected Overrides Sub OnShown(e As EventArgs)
+        MyBase.OnShown(e)
+        ' クライアント起動時、未ログインであれば強制的に Web ログイン画面 (WebLoginForm) へ遷移
+        If String.IsNullOrWhiteSpace(_currentSessionToken) Then
+            EnsureLoggedInOrPrompt()
+        End If
+    End Sub
+
+    Private Function EnsureLoggedInOrPrompt() As Boolean
+        If Not String.IsNullOrWhiteSpace(_currentSessionToken) Then
+            Return True
+        End If
+        Return ShowWebLoginModal()
+    End Function
+
+    Private Function ShowWebLoginModal() As Boolean
+        Using loginForm As New WebLoginForm(GatewayBaseUrl)
+            If loginForm.ShowDialog(Me) = DialogResult.OK AndAlso Not String.IsNullOrWhiteSpace(loginForm.SessionToken) Then
+                _currentSessionToken = loginForm.SessionToken
+
+                SharedHttpClient.DefaultRequestHeaders.Remove(AuthTokenHeaderName)
+                SharedHttpClient.DefaultRequestHeaders.Add(AuthTokenHeaderName, _currentSessionToken)
+                SharedCookieContainer.Add(New Uri(GatewayBaseUrl), New Cookie(AuthCookieName, _currentSessionToken, "/"))
+
+                lblLoginStatus.Text = $"ログイン中: {loginForm.UserSummary}"
+                lblLoginStatus.ForeColor = Color.FromArgb(5, 150, 105)
+                btnLogout.Enabled = True
+
+                txtResult.Text =
+                    "=== Web ログイン成功 (WebView2 -> ModernBff 認証 -> Redis 共有セッション) ===" & Environment.NewLine &
+                    $"loginuser : {loginForm.UserSummary}" & Environment.NewLine &
+                    $"Token     : {_currentSessionToken}" & Environment.NewLine &
+                    New String("-"c, 70) & Environment.NewLine &
+                    loginForm.RawLoginResponseJson
+                Return True
+            End If
+        End Using
+        Return False
+    End Function
+
     Private Sub btnOpenItemWinForms_Click(sender As Object, e As EventArgs) Handles btnOpenItemWinForms.Click
+        If Not EnsureLoggedInOrPrompt() Then Return
         Using itemForm As New ItemManagementForm(SharedHttpClient)
             itemForm.ShowDialog(Me)
         End Using
     End Sub
 
     Private Sub btnOpenDrawingWeb_Click(sender As Object, e As EventArgs) Handles btnOpenDrawingWeb.Click
-        OpenBrowserUrl(GatewayBaseUrl.TrimEnd("/"c) & "/legacy-drawings")
+        OpenBrowserUrl(GatewayBaseUrl.TrimEnd("/"c) & "/web/view/drawings?drw_no='drw004'")
     End Sub
 
     Private Sub btnOpenProjectWeb_Click(sender As Object, e As EventArgs) Handles btnOpenProjectWeb.Click
@@ -249,26 +290,7 @@ Public Class Form1
     End Sub
 
     Private Sub btnOpenWebLogin_Click(sender As Object, e As EventArgs) Handles btnOpenWebLogin.Click
-        Using loginForm As New WebLoginForm(GatewayBaseUrl)
-            If loginForm.ShowDialog(Me) = DialogResult.OK AndAlso Not String.IsNullOrWhiteSpace(loginForm.SessionToken) Then
-                _currentSessionToken = loginForm.SessionToken
-
-                SharedHttpClient.DefaultRequestHeaders.Remove(AuthTokenHeaderName)
-                SharedHttpClient.DefaultRequestHeaders.Add(AuthTokenHeaderName, _currentSessionToken)
-                SharedCookieContainer.Add(New Uri(GatewayBaseUrl), New Cookie(AuthCookieName, _currentSessionToken, "/"))
-
-                lblLoginStatus.Text = $"ログイン中: {loginForm.UserSummary}"
-                lblLoginStatus.ForeColor = Color.FromArgb(5, 150, 105)
-                btnLogout.Enabled = True
-
-                txtResult.Text =
-                    "=== Web ログイン成功 (WebView2 -> ModernBff USR_TBL 認証 -> Redis 共有セッション) ===" & Environment.NewLine &
-                    $"loginuser : {loginForm.UserSummary}" & Environment.NewLine &
-                    $"Token     : {_currentSessionToken}" & Environment.NewLine &
-                    New String("-"c, 70) & Environment.NewLine &
-                    loginForm.RawLoginResponseJson
-            End If
-        End Using
+        ShowWebLoginModal()
     End Sub
 
     Private Async Sub btnLogout_Click(sender As Object, e As EventArgs) Handles btnLogout.Click
@@ -282,10 +304,12 @@ Public Class Form1
         lblLoginStatus.Text = "ログイン状態: 未ログイン (ログアウトしました)"
         lblLoginStatus.ForeColor = Color.FromArgb(51, 65, 85)
         btnLogout.Enabled = False
-        txtResult.Text = "ログアウトしました。Redis 上の共有 loginuser セッションを破棄しました。"
+        txtResult.Text = "ログアウトしました。未ログイン状態となったため、ログイン画面に強制遷移します。"
+        ShowWebLoginModal()
     End Sub
 
     Private Async Sub btnFetchData_Click(sender As Object, e As EventArgs) Handles btnFetchData.Click
+        If Not EnsureLoggedInOrPrompt() Then Return
         btnFetchData.Enabled = False
         Dim relativePath As String = If(cmbRoute.SelectedItem?.ToString(), "/api/bff/workflow/projects")
 

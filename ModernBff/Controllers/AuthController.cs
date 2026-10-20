@@ -13,9 +13,10 @@ namespace ModernBff.Controllers;
 
 /// <summary>
 /// モダン側 (ModernBff) 統合認証コントローラー。
-/// レガシー側 (LegacyMvc) にあった SAML 認証・OIDC 認証・パスワード認証を廃止して ModernBff に完全集約。
-/// いずれの方式で認証された場合も USR_TBL (EF Core) でユーザの有効性 (IS_ACTIVE) と組織・権限を引き当て、
-/// 共通の loginuser を Redis に格納して全プロジェクト (ClientController / ViewController / .aspx) へ共有します。
+/// ・enableNormalLogin: True の場合は ID/パスワード入力＋シングルサインインボタン、False の場合はシングルサインインボタンのみ有効
+/// ・autoRedirectToIdpOnLogin: True の場合はログイン画面を表示せず直接 SAML/OIDC IdP へリダイレクト
+/// ・returnUrl: 未ログイン状態で http://localhost:5000/web/view/drawings?drw_no='drw004' 等へアクセスした際、
+///   ログイン完了後に元の URL へ自動遷移して対象図面を表示します。
 /// </summary>
 [ApiController]
 [Route("api/bff/auth")]
@@ -42,12 +43,54 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/bff/auth/config (および /api/bff/auth/providers)
+    /// 現在の認証設定パラメータ (enableNormalLogin / autoRedirectToIdpOnLogin) と登録済 SAML/OIDC IdP 一覧を返します。
+    /// </summary>
+    [HttpGet("config")]
+    [HttpGet("providers")]
+    public IActionResult GetAuthConfig()
+    {
+        var providers = _loginUserStore.GetIdpProviders();
+        var primary = _loginUserStore.GetSelectedOrPrimaryIdp();
+
+        return Ok(new
+        {
+            enableNormalLogin = _loginUserStore.EnableNormalLogin,
+            autoRedirectToIdpOnLogin = _loginUserStore.AutoRedirectToIdpOnLogin,
+            defaultSsoProviderId = _loginUserStore.DefaultSsoProviderId,
+            primaryProvider = primary,
+            providers = providers,
+            configSource = "ModernBff/appsettings.json (Authentication:enableNormalLogin, Authentication:autoRedirectToIdpOnLogin, Authentication:Providers)"
+        });
+    }
+
+    /// <summary>
+    /// POST /api/bff/auth/config
+    /// 検証用に enableNormalLogin / autoRedirectToIdpOnLogin / defaultSsoProviderId を実行時に切り替えます。
+    /// </summary>
+    [HttpPost("config")]
+    public IActionResult UpdateAuthConfig([FromBody] AuthConfigUpdateDto dto)
+    {
+        _loginUserStore.UpdateRuntimeConfig(dto.EnableNormalLogin, dto.AutoRedirectToIdpOnLogin, dto.DefaultSsoProviderId);
+        return GetAuthConfig();
+    }
+
+    /// <summary>
     /// POST /api/bff/auth/login
     /// 1. 通常ログイン (USR_TBL の ID / パスワード認証)
+    /// enableNormalLogin = false の場合は拒否します。
     /// </summary>
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
+        if (!_loginUserStore.EnableNormalLogin)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = "現在 enableNormalLogin = false に設定されているため、ID/パスワードによる通常ログインは無効化されています。シングルサインイン (SAML/OIDC) ボタンからログインしてください。"
+            });
+        }
+
         if (string.IsNullOrWhiteSpace(request.UserId))
         {
             return BadRequest(new { message = "ユーザIDを入力してください。" });
@@ -98,20 +141,22 @@ public class AuthController : ControllerBase
             usrRecord,
             authMethod: "Password (USR_TBL)",
             idpName: "ModernBff LocalDB (USR_TBL)",
-            dbProviderStatus: dbProviderStatus);
+            dbProviderStatus: dbProviderStatus,
+            returnUrl: request.ReturnUrl);
     }
 
     /// <summary>
     /// POST /api/bff/auth/sso
-    /// 2. OIDC (OpenID Connect) / SAML 2.0 統合シングルサインオン認証エンドポイント
-    /// レガシー側にあった SAML / OIDC 認証を廃止し、モダン Web サイト側で IdP トークン / SAML Assertion を検証した上で
-    /// USR_TBL のユーザ・組織・権限を引き当てて Redis に loginuser を発行します。
+    /// 2. シングルサインインボタン押下時の SAML 2.0 / OIDC 認証エンドポイント
+    /// 複数の SAML/OIDC プロバイダ登録にも対応し、指定された ProviderId (未指定時はプライマリ IdP) で認証します。
     /// </summary>
     [HttpPost("sso")]
     public async Task<IActionResult> SsoLogin([FromBody] SsoSimulateRequest request)
     {
-        string protocol = (request.Protocol ?? "OIDC").Trim().ToUpperInvariant();
-        string nameId = (request.NameId ?? "yamada").Trim();
+        var selectedProvider = _loginUserStore.GetSelectedOrPrimaryIdp(request.ProviderId);
+        string protocol = (!string.IsNullOrWhiteSpace(request.Protocol) ? request.Protocol : selectedProvider.Protocol)
+            .Trim().ToUpperInvariant();
+        string nameId = string.IsNullOrWhiteSpace(request.NameId) ? "yamada" : request.NameId.Trim();
 
         using var db = DatabaseConfigurationExtensions.CreateWorkingContextWithFallback(
             _serviceProvider,
@@ -127,7 +172,7 @@ public class AuthController : ControllerBase
         {
             return Unauthorized(new
             {
-                message = $"[{protocol} 認証エラー] IdP から返却された Subject/NameID '{nameId}' が USR_TBL に存在しません。",
+                message = $"[{protocol} 認証エラー] IdP ({selectedProvider.DisplayName}) から返却された Subject/NameID '{nameId}' が USR_TBL に存在しません。",
                 checkedTable = "USR_TBL",
                 databaseProvider = dbProviderStatus
             });
@@ -144,24 +189,86 @@ public class AuthController : ControllerBase
         }
 
         string authMethod = protocol == "SAML2"
-            ? "SAML 2.0 (ModernBff SAML Assertion Consumer)"
-            : "OIDC (ModernBff OpenID Connect Authorization Code + PKCE)";
+            ? $"SAML 2.0 SSO ({selectedProvider.DisplayName})"
+            : $"OIDC SSO ({selectedProvider.DisplayName})";
 
         string idpIssuer = !string.IsNullOrWhiteSpace(request.IdpIssuer)
             ? request.IdpIssuer
-            : (protocol == "SAML2"
-                ? (_configuration["Authentication:Saml2:IdpEntityId"] ?? "https://idp.enterprise.local/saml2")
-                : (_configuration["Authentication:Oidc:Authority"] ?? "https://login.microsoftonline.com/common/v2.0"));
+            : selectedProvider.Issuer;
 
-        return await IssueSharedSessionAsync(usrRecord, authMethod, idpIssuer, dbProviderStatus);
+        return await IssueSharedSessionAsync(
+            usrRecord,
+            authMethod,
+            idpIssuer,
+            dbProviderStatus,
+            request.ReturnUrl);
+    }
+
+    /// <summary>
+    /// GET /api/bff/auth/sso/redirect?returnUrl=...&providerId=...&user=yamada
+    /// autoRedirectToIdpOnLogin = true の場合や、ブラウザ直接リダイレクトで SSO ログインを実行し、
+    /// 認証 Cookie と Redis loginuser を発行した上で returnUrl (例: /web/view/drawings?drw_no='drw004') へ直接リダイレクトします。
+    /// </summary>
+    [HttpGet("sso/redirect")]
+    public async Task<IActionResult> SsoDirectRedirect(
+        [FromQuery] string? returnUrl = null,
+        [FromQuery] string? providerId = null,
+        [FromQuery] string user = "yamada",
+        [FromQuery] bool clientWebView = false)
+    {
+        var selectedProvider = _loginUserStore.GetSelectedOrPrimaryIdp(providerId);
+        string protocol = selectedProvider.Protocol.ToUpperInvariant();
+
+        using var db = DatabaseConfigurationExtensions.CreateWorkingContextWithFallback(
+            _serviceProvider,
+            _configuration,
+            _logger,
+            out string dbProviderStatus);
+
+        var usrRecord = await db.UsrTbl
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.UsrId.ToLower() == user.Trim().ToLower())
+            ?? await db.UsrTbl.AsNoTracking().FirstAsync(u => u.IsActive);
+
+        string authMethod = $"{protocol} AutoRedirect SSO ({selectedProvider.DisplayName})";
+        var (_, loginUser, payloadObj) = await CreateAndSaveSessionAsync(
+            usrRecord,
+            authMethod,
+            selectedProvider.Issuer,
+            dbProviderStatus,
+            returnUrl);
+
+        // WinForms WebView2 からのアクセスで autoRedirectToIdpOnLogin = true が発動した場合は、
+        // WebView2 に STRANGLER_LOGIN_SUCCESS メッセージを送ってダイアログを自動完了させる
+        if (clientWebView)
+        {
+            string jsonPayload = JsonSerializer.Serialize(payloadObj);
+            string html = $@"<!DOCTYPE html>
+<html><head><meta charset=""utf-8""><title>SSO Auto Redirect Login</title></head>
+<body style=""background:#0f172a;color:#f8fafc;font-family:sans-serif;padding:24px;"">
+<h3>✓ autoRedirectToIdpOnLogin=true により {selectedProvider.DisplayName} で自動シングルサインインしました</h3>
+<script>
+if (window.chrome && window.chrome.webview) {{
+    window.chrome.webview.postMessage(JSON.stringify({{
+        type: 'STRANGLER_LOGIN_SUCCESS',
+        payload: {jsonPayload}
+    }}));
+}}
+</script>
+</body></html>";
+            return Content(html, "text/html; charset=utf-8");
+        }
+
+        string safeTarget = NormalizeReturnUrl(returnUrl);
+        return Redirect(safeTarget);
     }
 
     /// <summary>
     /// POST /api/bff/auth/saml2/acs
-    /// SAML 2.0 IdP からの HTTP-POST バインディング (SAMLResponse Base64 XML) を受け取る Assertion Consumer Service (ACS) エンドポイント
+    /// SAML 2.0 IdP からの HTTP-POST バインディング (SAMLResponse) を受け取る ACS エンドポイント
     /// </summary>
     [HttpPost("saml2/acs")]
-    public async Task<IActionResult> Saml2AssertionConsumerService([FromForm] string? SAMLResponse)
+    public async Task<IActionResult> Saml2AssertionConsumerService([FromForm] string? SAMLResponse, [FromForm] string? RelayState)
     {
         string extractedNameId = "yamada";
         if (!string.IsNullOrWhiteSpace(SAMLResponse))
@@ -179,37 +286,38 @@ public class AuthController : ControllerBase
             }
             catch
             {
-                // Base64 ではなく直接ユーザIDが渡された場合のフォールバック
                 extractedNameId = SAMLResponse.Trim();
             }
         }
 
         return await SsoLogin(new SsoSimulateRequest
         {
+            ProviderId = "saml2-enterprise",
             Protocol = "SAML2",
-            NameId = extractedNameId
+            NameId = extractedNameId,
+            ReturnUrl = RelayState
         });
     }
 
     /// <summary>
-    /// GET /api/bff/auth/oidc/callback?code=xxx&user=yamada
+    /// GET /api/bff/auth/oidc/callback?code=xxx&user=yamada&state=/web/view/drawings?drw_no='drw004'
     /// OIDC IdP からの認可コードコールバックを受け取るエンドポイント
     /// </summary>
     [HttpGet("oidc/callback")]
-    public async Task<IActionResult> OidcCallback([FromQuery] string? code, [FromQuery] string user = "yamada")
+    public async Task<IActionResult> OidcCallback(
+        [FromQuery] string? code,
+        [FromQuery] string user = "yamada",
+        [FromQuery] string? state = null)
     {
-        return await SsoLogin(new SsoSimulateRequest
-        {
-            Protocol = "OIDC",
-            NameId = user
-        });
+        return await SsoDirectRedirect(returnUrl: state, providerId: "oidc-entra-primary", user: user);
     }
 
-    private async Task<IActionResult> IssueSharedSessionAsync(
+    private async Task<(bool StoredInRedis, LoginUser User, object Payload)> CreateAndSaveSessionAsync(
         UsrTblEntity usrRecord,
         string authMethod,
         string idpName,
-        string dbProviderStatus)
+        string dbProviderStatus,
+        string? returnUrl)
     {
         var roles = usrRecord.RolesCsv
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -229,7 +337,6 @@ public class AuthController : ControllerBase
         };
 
         var ttl = TimeSpan.FromMinutes(60);
-
         var (storedInRedis, redisKey) = await _loginUserStore.SaveLoginUserAsync(loginUser, ttl);
 
         try
@@ -254,7 +361,8 @@ public class AuthController : ControllerBase
 
         Response.Headers[SharedLoginUserStore.HeaderName] = loginUser.SessionToken;
 
-        return Ok(new
+        string safeReturnUrl = NormalizeReturnUrl(returnUrl);
+        var payload = new
         {
             Message = $"[{authMethod}] USR_TBL での検証に成功し、loginuser を共有セッション (Redis) に登録しました。",
             AuthenticatedFromTable = "USR_TBL (EF Core)",
@@ -263,8 +371,36 @@ public class AuthController : ControllerBase
             DatabaseProvider = dbProviderStatus,
             StoredInRedis = storedInRedis,
             RedisKey = redisKey,
+            ReturnUrl = safeReturnUrl,
             LoginUser = loginUser
-        });
+        };
+
+        return (storedInRedis, loginUser, payload);
+    }
+
+    private async Task<IActionResult> IssueSharedSessionAsync(
+        UsrTblEntity usrRecord,
+        string authMethod,
+        string idpName,
+        string dbProviderStatus,
+        string? returnUrl)
+    {
+        var (_, _, payload) = await CreateAndSaveSessionAsync(usrRecord, authMethod, idpName, dbProviderStatus, returnUrl);
+        return Ok(payload);
+    }
+
+    private static string NormalizeReturnUrl(string? returnUrl)
+    {
+        if (string.IsNullOrWhiteSpace(returnUrl))
+        {
+            return "/legacy-drawings";
+        }
+        string trimmed = returnUrl.Trim();
+        if (trimmed.StartsWith("/") && !trimmed.StartsWith("//"))
+        {
+            return trimmed;
+        }
+        return "/legacy-drawings";
     }
 
     /// <summary>
@@ -323,8 +459,12 @@ public class AuthController : ControllerBase
     {
         var token = _loginUserStore.ExtractToken(HttpContext);
         await _loginUserStore.RemoveLoginUserAsync(token);
-        Response.Cookies.Delete(SharedLoginUserStore.CookieName);
+        Response.Cookies.Delete(SharedLoginUserStore.CookieName, new CookieOptions { Path = "/" });
 
-        return Ok(new { Message = "ログアウトしました。" });
+        return Ok(new
+        {
+            Message = "ログアウトしました。",
+            LoginRedirectUrl = "/login"
+        });
     }
 }

@@ -42,17 +42,60 @@ public class LoginRequest
 {
     public string UserId { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+    public string? ReturnUrl { get; set; }
 }
 
 public class SsoSimulateRequest
 {
     /// <summary>
+    /// 登録済 IdP プロバイダID (例: "oidc-entra-primary", "saml2-enterprise", "oidc-partner-tenant")
+    /// </summary>
+    public string? ProviderId { get; set; }
+
+    /// <summary>
     /// "OIDC" または "SAML2"
     /// </summary>
     public string Protocol { get; set; } = "OIDC";
+
     /// <summary>
     /// IdP (Entra ID / Okta / ADFS 等) から返却された Subject / NameID (USR_TBL.USR_ID にマッピング)
     /// </summary>
     public string NameId { get; set; } = "yamada";
+
     public string? IdpIssuer { get; set; }
+
+    public string? ReturnUrl { get; set; }
+}
+
+public class IdpProviderConfig
+{
+    [JsonPropertyName("providerId")]
+    public string ProviderId { get; set; } = string.Empty;
+
+    [JsonPropertyName("displayName")]
+    public string DisplayName { get; set; } = string.Empty;
+
+    [JsonPropertyName("protocol")]
+    public string Protocol { get; set; } = "OIDC";
+
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; } = true;
+
+    [JsonPropertyName("isPrimary")]
+    public bool IsPrimary { get; set; }
+
+    [JsonPropertyName("issuer")]
+    public string Issuer { get; set; } = string.Empty;
+}
+
+public class AuthConfigUpdateDto
+{
+    [JsonPropertyName("enableNormalLogin")]
+    public bool? EnableNormalLogin { get; set; }
+
+    [JsonPropertyName("autoRedirectToIdpOnLogin")]
+    public bool? AutoRedirectToIdpOnLogin { get; set; }
+
+    [JsonPropertyName("defaultSsoProviderId")]
+    public string? DefaultSsoProviderId { get; set; }
 }

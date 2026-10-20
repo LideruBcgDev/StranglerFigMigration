@@ -6,32 +6,13 @@ using LegacyMvc.PRM;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using ModernBff.MDL.Data;
+using ModernBff.PRM;
 
 namespace ModernBff.MDL.Commands;
 
-public class ProjectRegistrationDto
-{
-    public string PrjId { get; set; } = string.Empty;
-    public string PrjNm { get; set; } = string.Empty;
-    public int CustomerId { get; set; } = 1;
-    public string TargetItmCd { get; set; } = string.Empty;
-    public string LinkedBomNo { get; set; } = string.Empty;
-    public string LinkedDrawingNo { get; set; } = string.Empty;
-}
-
-public class WorkflowApplyDto
-{
-    public string? WfId { get; set; }
-    /// <summary>
-    /// "PROJECT" (案件) | "ITEM" (品目) | "DRAWING" (図面)
-    /// </summary>
-    public string TargetType { get; set; } = "PROJECT";
-    /// <summary>
-    /// 対象のキー (PRJ-1001, ITM-001, DRW-2026-001 など)
-    /// </summary>
-    public string TargetId { get; set; } = string.Empty;
-    public string? WfTitle { get; set; }
-}
+/// <summary>
+/// ProjectRegistrationDto および WorkflowApplyDto は ModernBff.PRM プロジェクトに定義されています。
+/// </summary>
 
 /// <summary>
 /// 【モダン側コマンド1: 案件統合管理コマンド (ModernBff.MDL)】
@@ -516,5 +497,210 @@ public class WorkflowCompleteCommand
                 await efTx.DisposeAsync();
             }
         }
+    }
+}
+
+// ====================================================================================
+// ModernBff.MDL における ICommand 実装クラス群 (ModernBff.PRM の IParam / OParam を使用)
+// LegacyMvc.MDL と全く同じ仕組み (<CommandDefinition> + Validate + Execute) で呼び出し可能で、
+// WinFormsClient からは DirectCast(result, ProjectSearchOParam) のように型安全に利用できます。
+// ====================================================================================
+
+[CommandDefinition("PRJ.SCH", Db = 1, Description = "案件統合検索コマンド (ModernBff.MDL.Commands.ProjectSearchCommand)")]
+public class ProjectSearchCommand : CommandBase<ProjectSearchIParam, ProjectSearchOParam>
+{
+    public ProjectSearchCommand() : base(null!)
+    {
+    }
+
+    public ProjectSearchCommand(ProjectSearchIParam iParam) : base(iParam)
+    {
+    }
+
+    protected override void ExecuteCore()
+    {
+        using var db = StranglerDbContext.CreateWorkingContext(
+            _iParam.ConfiguredProvider,
+            _iParam.ConnectionString,
+            out string providerStatus);
+
+        var prjQuery = db.PrjTbl.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(_iParam.Keyword))
+        {
+            string kw = _iParam.Keyword.Trim().ToLowerInvariant();
+            prjQuery = prjQuery.Where(p =>
+                p.PrjId.ToLower().Contains(kw) ||
+                p.PrjNm.ToLower().Contains(kw) ||
+                p.TargetItmCd.ToLower().Contains(kw) ||
+                p.LinkedDrawingNo.ToLower().Contains(kw));
+        }
+
+        var projects = prjQuery.OrderBy(p => p.PrjId).ToList();
+        var workflows = db.WfTbl.AsNoTracking().OrderBy(w => w.WfId).ToList();
+        var legacyItemCmd = new LegacyItemQueryCommand();
+        var legacyItems = legacyItemCmd.Execute(_iParam.ConfiguredProvider, _iParam.ConnectionString, null!).Items;
+        var allDrawings = LegacyApprovalStore.GetAllDrawings();
+        var allBoms = LegacyApprovalStore.GetAllBoms();
+
+        var integrated = projects.Select(p =>
+        {
+            var itemCodes = (p.TargetItmCd ?? string.Empty)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var drawingNos = (p.LinkedDrawingNo ?? string.Empty)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            return new IntegratedProjectRecord
+            {
+                Project = p,
+                LinkedItems = legacyItems.Where(i => itemCodes.Contains(i.ItmCd, StringComparer.OrdinalIgnoreCase)).ToList(),
+                LinkedDrawings = allDrawings.Where(d => drawingNos.Contains(d.DrawingNo, StringComparer.OrdinalIgnoreCase)).ToList(),
+                LegacyBomStatus = LegacyApprovalStore.GetBom(p.LinkedBomNo),
+                Workflows = workflows.Where(w =>
+                    string.Equals(w.PrjId, p.PrjId, StringComparison.OrdinalIgnoreCase) ||
+                    (string.Equals(w.TargetType, "PROJECT", StringComparison.OrdinalIgnoreCase) &&
+                     string.Equals(w.TargetId, p.PrjId, StringComparison.OrdinalIgnoreCase))).ToList()
+            };
+        }).ToList();
+
+        _oParam.ProjectCount = integrated.Count;
+        _oParam.IntegratedProjects = integrated;
+        _oParam.AvailableItems = legacyItems;
+        _oParam.AvailableDrawings = allDrawings;
+        _oParam.AvailableBoms = allBoms;
+        _oParam.AllWorkflows = workflows;
+        _oParam.ProviderStatus = providerStatus;
+        _oParam.SummaryMessage = $"[PRJ.SCH: ModernBff.MDL.ProjectSearchCommand (db={_iParam.DbNumber})] 案件 {integrated.Count}件 / WF {workflows.Count}件 を取得しました。";
+    }
+}
+
+[CommandDefinition("PRJ.SAV", Db = 1, Description = "案件統合登録・更新コマンド (ModernBff.MDL.Commands.ProjectSaveCommand)")]
+public class ProjectSaveCommand : CommandBase<ProjectSaveIParam, ProjectSaveOParam>
+{
+    public ProjectSaveCommand() : base(null!)
+    {
+    }
+
+    public ProjectSaveCommand(ProjectSaveIParam iParam) : base(iParam)
+    {
+    }
+
+    protected override void ExecuteCore()
+    {
+        using var db = StranglerDbContext.CreateWorkingContext(
+            _iParam.ConfiguredProvider,
+            _iParam.ConnectionString,
+            out string providerStatus);
+
+        var cmd = new ProjectIntegrationCommand();
+        var saved = cmd.RegisterOrUpdateProjectAsync(db, _iParam.Project).GetAwaiter().GetResult();
+        _oParam.SavedProject = saved;
+        _oParam.ProviderStatus = providerStatus;
+    }
+}
+
+[CommandDefinition("WF.APP", Db = 1, Description = "ワークフロー申請コマンド (ModernBff.MDL.Commands.WorkflowApplyCommand)")]
+public class WorkflowApplyCommand : CommandBase<WorkflowApplyIParam, WorkflowApplyOParam>
+{
+    public WorkflowApplyCommand() : base(null!)
+    {
+    }
+
+    public WorkflowApplyCommand(WorkflowApplyIParam iParam) : base(iParam)
+    {
+    }
+
+    protected override void ExecuteCore()
+    {
+        using var db = StranglerDbContext.CreateWorkingContext(
+            _iParam.ConfiguredProvider,
+            _iParam.ConnectionString,
+            out _);
+
+        var cmd = new WorkflowCompleteCommand();
+        var wf = cmd.ApplyAsync(
+            db,
+            _iParam.ConfiguredProvider,
+            _iParam.ConnectionString,
+            _iParam.ApplyRequest,
+            _iParam.LoginUser.UserId,
+            _iParam.LoginUser.UserName).GetAwaiter().GetResult();
+
+        _oParam.Workflow = wf;
+    }
+}
+
+[CommandDefinition("WF.VRF", Db = 1, Description = "ワークフロー照査コマンド (ModernBff.MDL.Commands.WorkflowVerifyCommand)")]
+public class WorkflowVerifyCommand : CommandBase<WorkflowVerifyIParam, WorkflowVerifyOParam>
+{
+    public WorkflowVerifyCommand() : base(null!)
+    {
+    }
+
+    public WorkflowVerifyCommand(WorkflowVerifyIParam iParam) : base(iParam)
+    {
+    }
+
+    protected override void ExecuteCore()
+    {
+        using var db = StranglerDbContext.CreateWorkingContext(
+            _iParam.ConfiguredProvider,
+            _iParam.ConnectionString,
+            out _);
+
+        var cmd = new WorkflowCompleteCommand();
+        var wf = cmd.VerifyAsync(
+            db,
+            _iParam.WfId,
+            _iParam.LoginUser.UserId,
+            _iParam.LoginUser.UserName).GetAwaiter().GetResult();
+
+        _oParam.Workflow = wf;
+    }
+}
+
+[CommandDefinition("WF.APR", Db = 1, Description = "ワークフロー最終承認コマンド (ModernBff.MDL.Commands.WorkflowApproveCommand)")]
+public class WorkflowApproveCommand : CommandBase<WorkflowApproveIParam, WorkflowApproveOParam>
+{
+    public WorkflowApproveCommand() : base(null!)
+    {
+    }
+
+    public WorkflowApproveCommand(WorkflowApproveIParam iParam) : base(iParam)
+    {
+    }
+
+    protected override void ExecuteCore()
+    {
+        using var db = StranglerDbContext.CreateWorkingContext(
+            _iParam.ConfiguredProvider,
+            _iParam.ConnectionString,
+            out _);
+
+        var wf = db.WfTbl.AsNoTracking().FirstOrDefault(w => w.WfId.ToLower() == _iParam.WfId.Trim().ToLower());
+        var cmd = new WorkflowCompleteCommand();
+        _ = cmd.ExecuteAsync(
+            db,
+            _iParam.WfId,
+            _iParam.LoginUser.UserId,
+            _iParam.LoginUser.UserName,
+            _iParam.LoginUser.OrganizationName,
+            _iParam.SimulateDrawingError,
+            _iParam.ConfiguredProvider,
+            _iParam.ConnectionString).GetAwaiter().GetResult();
+
+        var updatedWf = db.WfTbl.AsNoTracking().FirstOrDefault(w => w.WfId.ToLower() == _iParam.WfId.Trim().ToLower()) ?? wf;
+        var updatedPrj = updatedWf != null && !string.IsNullOrWhiteSpace(updatedWf.PrjId)
+            ? db.PrjTbl.AsNoTracking().FirstOrDefault(p => p.PrjId.ToLower() == updatedWf.PrjId.ToLower())
+            : null;
+
+        _oParam.TargetType = updatedWf?.TargetType ?? "PROJECT";
+        _oParam.TargetId = updatedWf?.TargetId ?? _iParam.WfId;
+        _oParam.TransactionResult = _iParam.SimulateDrawingError
+            ? "ROLLED_BACK (エラーシミュレーションにより一括ロールバック)"
+            : "COMMITTED (案件・関連品目・BOM・図面を一括承認コミット)";
+        _oParam.ModernWorkflow = updatedWf;
+        _oParam.ModernProject = updatedPrj;
+        _oParam.LegacyBom = updatedPrj != null ? LegacyApprovalStore.GetBom(updatedPrj.LinkedBomNo) : null;
+        _oParam.LegacyDrawings = updatedPrj != null ? LegacyApprovalStore.GetAllDrawings(updatedPrj.LinkedDrawingNo) : new List<DrawingRecord>();
     }
 }

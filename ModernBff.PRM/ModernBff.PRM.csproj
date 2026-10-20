@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- WinFormsClient (.NET 8), ModernBff / ModernBff.MDL (.NET 9/10), LegacyMvc (.NET 4.8.1) のどこからでも参照可能な netstandard2.0 -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 共通基盤 (Common.APP) および ICommand/IParamBase/OParamBase 定義 (LegacyMvc.PRM) を参照 -->
+    <ProjectReference Include="..\Common.APP\Common.APP.vbproj" />
+    <ProjectReference Include="..\LegacyMvc.PRM\LegacyMvc.PRM.vbproj" />
+  </ItemGroup>
+
+</Project>

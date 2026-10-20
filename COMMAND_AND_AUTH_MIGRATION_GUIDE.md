@@ -141,33 +141,39 @@ flowchart TD
 
 ---
 
-## 6. 共通プロジェクト構成（`Common.APP` / `LegacyMvc.PRM`）と `DirectCast` の仕組み
+## 6. 共通プロジェクト構成（`Common.APP` / `LegacyMvc.PRM` / `ModernBff.PRM`）と `DirectCast` の仕組み
 
-循環参照を防ぎつつ、どのプロジェクトからでも共通クラスやパラメータ型を参照できるよう、以下の階層構造で分割しています。
+循環参照を防ぎつつ、レガシー側・モダン側で完全に対称な構成（`Controller` → `MDL` → `PRM` → `Common.APP`）となるよう分割しています。
 
 ```mermaid
 flowchart BT
     Common["Common.APP (VB.NET / netstandard2.0)<br/>・LoginUser<br/>・StranglerHttpClientUtility"]
-    PRM["LegacyMvc.PRM (VB.NET / netstandard2.0)<br/>・ICommand / IParamBase / OParamBase<br/>・BomRecord / DrawingRecord / ItmTblEntity<br/>・ItemAppIParam / ItemAppOParam 等"]
+    LPRM["LegacyMvc.PRM (VB.NET / netstandard2.0)<br/>・ICommand / IParamBase / OParamBase<br/>・BomRecord / DrawingRecord / ItmTblEntity<br/>・ItemAppIParam / ItemAppOParam 等"]
+    MPRM["ModernBff.PRM (C# / netstandard2.0)<br/>・PrjTblEntity / WfTblEntity / IntegratedProjectRecord<br/>・ProjectRegistrationDto / WorkflowApplyDto<br/>・ProjectSearchIParam / ProjectSearchOParam (PRJ.SCH) 等"]
     MDL["LegacyMvc.MDL (VB.NET / netstandard2.0)<br/>・CommandsLegacyApprovalStore (ITM.APP)<br/>・ItemSearchCommand (ITM.SCH) 等<br/>・CommandDispatcher"]
-    WinForms["WinFormsClient (VB.NET / net8.0-windows)<br/>・DirectCast(result, ItemAppOParam)"]
+    ModernMDL["ModernBff.MDL (C#)<br/>・ProjectSearchCommand (PRJ.SCH)<br/>・WorkflowApproveCommand (WF.APR) 等"]
+    WinForms["WinFormsClient (VB.NET / net8.0-windows)<br/>・DirectCast(result, ItemAppOParam)<br/>・DirectCast(result, ProjectSearchOParam)"]
     LegacyWeb["LegacyMvc (VB.NET / net481)"]
-    ModernMDL["ModernBff.MDL (C#)"]
     ModernBff["ModernBff (C#)"]
 
-    PRM --> Common
+    LPRM --> Common
+    MPRM --> Common
+    MPRM --> LPRM
     MDL --> Common
-    MDL --> PRM
-    WinForms --> Common
-    WinForms --> PRM
-    LegacyWeb --> Common
-    LegacyWeb --> PRM
-    LegacyWeb --> MDL
+    MDL --> LPRM
     ModernMDL --> Common
-    ModernMDL --> PRM
+    ModernMDL --> LPRM
+    ModernMDL --> MPRM
     ModernMDL --> MDL
+    WinForms --> Common
+    WinForms --> LPRM
+    WinForms --> MPRM
+    LegacyWeb --> Common
+    LegacyWeb --> LPRM
+    LegacyWeb --> MDL
     ModernBff --> Common
-    ModernBff --> PRM
+    ModernBff --> LPRM
+    ModernBff --> MPRM
     ModernBff --> MDL
     ModernBff --> ModernMDL
 ```

@@ -16,9 +16,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 共通プロジェクト (Common.APP, LegacyMvc.PRM) およびサーバー側コマンド実行 (ModernBff.MDL, LegacyMvc.MDL) を参照 -->
+    <!-- 共通プロジェクト (Common.APP, LegacyMvc.PRM, ModernBff.PRM) およびサーバー側コマンド実行 (ModernBff.MDL, LegacyMvc.MDL) を参照 -->
     <ProjectReference Include="..\Common.APP\Common.APP.vbproj" />
     <ProjectReference Include="..\LegacyMvc.PRM\LegacyMvc.PRM.vbproj" />
+    <ProjectReference Include="..\ModernBff.PRM\ModernBff.PRM.csproj" />
     <ProjectReference Include="..\ModernBff.MDL\ModernBff.MDL.csproj" />
     <ProjectReference Include="..\LegacyMvc.MDL\LegacyMvc.MDL.vbproj" />
   </ItemGroup>

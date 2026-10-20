@@ -5,27 +5,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ModernBff.Data;
 using ModernBff.MDL.Data;
+using ModernBff.PRM;
 using ModernBff.Services;
 
 namespace ModernBff.Controllers;
 
-public class ItemRegistrationRequest
-{
-    public string ItmCd { get; set; } = string.Empty;
-    public string ItmNm { get; set; } = string.Empty;
-    public string Category { get; set; } = "一般品目";
-    public decimal UnitPrice { get; set; }
-    public int StockQty { get; set; }
-}
-
-public class DrawingRegistrationRequest
-{
-    public string DrawingNo { get; set; } = string.Empty;
-    public string Title { get; set; } = string.Empty;
-    public string ItmCd { get; set; } = "ITM-001";
-    public string BomNo { get; set; } = string.Empty;
-    public string Revision { get; set; } = "Rev.A";
-}
+/// <summary>
+/// ItemRegistrationRequest および DrawingRegistrationRequest は ModernBff.PRM プロジェクトに定義されています。
+/// </summary>
 
 /// <summary>
 /// 品目 (ITM_TBL) およびレガシー図面 (DRW_TBL) の検索・登録 API。

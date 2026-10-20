@@ -5,6 +5,7 @@ Imports System.Net.Http
 Imports System.Text.Json
 Imports Common.APP
 Imports LegacyMvc.PRM
+Imports ModernBff.PRM
 
 Public Class Form1
     Inherits Form
@@ -42,6 +43,7 @@ Public Class Form1
     Private pnlScreens As FlowLayoutPanel
     Private WithEvents btnOpenItemWinForms As Button
     Private WithEvents btnExecItmAppCommand As Button
+    Private WithEvents btnExecPrjSchCommand As Button
     Private WithEvents btnOpenDrawingWeb As Button
     Private WithEvents btnOpenProjectWeb As Button
     Private WithEvents btnOpenWorkflowWeb As Button
@@ -108,40 +110,48 @@ Public Class Form1
         }
 
         btnOpenItemWinForms = New Button() With {
-            .Text = "[WinForms] 品目(ITM_TBL)管理",
-            .Size = New Size(175, 32),
+            .Text = "[WinForms] 品目(ITM_TBL)",
+            .Size = New Size(148, 32),
             .BackColor = Color.FromArgb(15, 118, 110),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
         }
 
         btnExecItmAppCommand = New Button() With {
-            .Text = "[Command: ITM.APP] DirectCast実行",
-            .Size = New Size(195, 32),
+            .Text = "[Legacy.PRM: ITM.APP] DirectCast",
+            .Size = New Size(175, 32),
             .BackColor = Color.FromArgb(180, 83, 9),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
         }
 
+        btnExecPrjSchCommand = New Button() With {
+            .Text = "[Modern.PRM: PRJ.SCH] DirectCast",
+            .Size = New Size(178, 32),
+            .BackColor = Color.FromArgb(3, 105, 161),
+            .ForeColor = Color.White,
+            .FlatStyle = FlatStyle.Flat
+        }
+
         btnOpenDrawingWeb = New Button() With {
-            .Text = "[レガシー Web] 図面(DRW_TBL)",
-            .Size = New Size(165, 32),
+            .Text = "[Web] 図面(DRW_TBL)",
+            .Size = New Size(122, 32),
             .BackColor = Color.FromArgb(71, 85, 105),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
         }
 
         btnOpenProjectWeb = New Button() With {
-            .Text = "[モダン Web] 案件統合(PRJ_TBL)",
-            .Size = New Size(170, 32),
+            .Text = "[Web] 案件統合",
+            .Size = New Size(115, 32),
             .BackColor = Color.FromArgb(29, 78, 216),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
         }
 
         btnOpenWorkflowWeb = New Button() With {
-            .Text = "[モダン Web] ワークフロー管理",
-            .Size = New Size(165, 32),
+            .Text = "[Web] WF管理",
+            .Size = New Size(115, 32),
             .BackColor = Color.FromArgb(109, 40, 217),
             .ForeColor = Color.White,
             .FlatStyle = FlatStyle.Flat
@@ -150,6 +160,7 @@ Public Class Form1
         pnlScreens.Controls.AddRange(New Control() {
             btnOpenItemWinForms,
             btnExecItmAppCommand,
+            btnExecPrjSchCommand,
             btnOpenDrawingWeb,
             btnOpenProjectWeb,
             btnOpenWorkflowWeb
@@ -170,8 +181,11 @@ Public Class Form1
         }
         cmbRoute.Items.AddRange(New Object() {
             "/Client/execute?commandName=ITM.APP",
+            "/Client/execute?commandName=PRJ.SCH",
+            "/Client/execute?commandName=WF.APR",
             "/Client/commands",
             "/View/execute?commandName=ITM.APP",
+            "/View/execute?commandName=PRJ.SCH",
             "/legacy-api/Client/execute?commandName=ITM.APP",
             "/legacy-api/View/execute?commandName=ITM.APP",
             "/Client/items",
@@ -309,6 +323,47 @@ Public Class Form1
                 $"Drawings.Count       : {oParam.Drawings.Count} 件"
         Catch ex As Exception
             txtResult.Text = $"[ITM.APP 実行エラー]{Environment.NewLine}{ex}"
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' 【モダン側コマンド名指定 ("PRJ.SCH") + ModernBff.PRM.ProjectSearchOParam への DirectCast 検証】
+    ''' &lt;CommandDefinition("PRJ.SCH", Db:=1)&gt; ModernBff.MDL.Commands.ProjectSearchCommand
+    ''' </summary>
+    Private Async Sub btnExecPrjSchCommand_Click(sender As Object, e As EventArgs) Handles btnExecPrjSchCommand.Click
+        If Not EnsureLoggedInOrPrompt() Then Return
+
+        Try
+            Dim iParam As New ProjectSearchIParam() With {
+                .CommandId = "PRJ.SCH",
+                .Keyword = ""
+            }
+
+            ' Common.APP.StranglerHttpClientUtility を使ってモダンコマンド名 "PRJ.SCH" で送信し、
+            ' 返却された Object (OParamBase) を ModernBff.PRM.ProjectSearchOParam へ DirectCast する
+            Dim rawOParam As Object = Await HttpUtil.ExecuteCommandAsync("PRJ.SCH", iParam, "Client/execute")
+            Dim oParam As ProjectSearchOParam = DirectCast(rawOParam, ProjectSearchOParam)
+
+            Dim firstPrj As IntegratedProjectRecord = oParam.IntegratedProjects.FirstOrDefault()
+            Dim prjSummary As String = If(firstPrj IsNot Nothing,
+                $"{firstPrj.Project.PrjId} ({firstPrj.Project.PrjNm}) | 品目:{firstPrj.Project.TargetItmCd} | 図面:{firstPrj.Project.LinkedDrawingNo} | 状態:{firstPrj.Project.PrjStatus}",
+                "(なし)")
+
+            txtResult.Text =
+                "=== [成功] モダンコマンド名 ""PRJ.SCH"" 実行 & ModernBff.PRM.ProjectSearchOParam への DirectCast 完了 ===" & Environment.NewLine &
+                "コマンド定義  : <CommandDefinition(""PRJ.SCH"", Db:=1)> ModernBff.MDL.Commands.ProjectSearchCommand" & Environment.NewLine &
+                "通信クラス    : Common.APP.StranglerHttpClientUtility.ExecuteCommandAsync(""PRJ.SCH"", iParam)" & Environment.NewLine &
+                "返却型キャスト: Dim oParam As ProjectSearchOParam = DirectCast(rawOParam, ProjectSearchOParam)" & Environment.NewLine &
+                New String("-"c, 75) & Environment.NewLine &
+                $"ExecutedCommandName  : {oParam.ExecutedCommandName}" & Environment.NewLine &
+                $"DbNumberUsed         : {oParam.DbNumberUsed}" & Environment.NewLine &
+                $"PermissionCheck      : {oParam.PermissionCheckResult}" & Environment.NewLine &
+                $"SummaryMessage       : {oParam.SummaryMessage}" & Environment.NewLine &
+                $"先頭案件レコード     : {prjSummary}" & Environment.NewLine &
+                $"IntegratedProjects   : {oParam.IntegratedProjects.Count} 件" & Environment.NewLine &
+                $"AllWorkflows         : {oParam.AllWorkflows.Count} 件"
+        Catch ex As Exception
+            txtResult.Text = $"[PRJ.SCH 実行エラー]{Environment.NewLine}{ex}"
         End Try
     End Sub
 

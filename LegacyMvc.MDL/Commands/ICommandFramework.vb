@@ -332,18 +332,26 @@ Namespace Commands
             RegisterConfigCommand("CUS.SCH", "LegacyMvc.MDL.Commands.CustomerQueryCommand,LegacyMvc.MDL", 1, "Config (<command name=""CUS.SCH"" ... db=""1"">)")
 
             ' 2. 別案: <CommandDefinition> 属性によるアセンブリ自動検出 (Config 記述漏れ防止)
-            For Each t As Type In GetType(CommandDispatcher).Assembly.GetTypes()
+            RegisterAssembly(GetType(CommandDispatcher).Assembly)
+        End Sub
+
+        Private Sub New()
+        End Sub
+
+        ''' <summary>
+        ''' 指定されたアセンブリ (LegacyMvc.MDL や ModernBff.MDL) 内の &lt;CommandDefinition&gt; 属性付き ICommand クラスを自動登録します。
+        ''' </summary>
+        Public Shared Sub RegisterAssembly(asm As Assembly)
+            If asm Is Nothing Then Return
+            For Each t As Type In asm.GetTypes()
                 Dim attrs = t.GetCustomAttributes(GetType(CommandDefinitionAttribute), False)
                 For Each attrObj As Object In attrs
                     Dim attr As CommandDefinitionAttribute = DirectCast(attrObj, CommandDefinitionAttribute)
                     If Not ConfigMappings.ContainsKey(attr.Name) Then
-                        RegisterConfigCommand(attr.Name, $"{t.FullName},{t.Assembly.GetName().Name}", attr.Db, "Attribute Auto-Discovery (<CommandDefinition>)")
+                        RegisterConfigCommand(attr.Name, $"{t.FullName},{t.Assembly.GetName().Name}", attr.Db, $"Attribute Auto-Discovery ({t.Assembly.GetName().Name}: <CommandDefinition(""{attr.Name}"")>)")
                     End If
                 Next
             Next
-        End Sub
-
-        Private Sub New()
         End Sub
 
         Public Shared Sub RegisterConfigCommand(name As String, commandTypeString As String, db As Integer, Optional source As String = "Config")
@@ -375,6 +383,12 @@ Namespace Commands
             If targetType Is Nothing Then
                 Dim classNameOnly As String = resolvedEntry.CommandTypeString.Split(","c)(0).Trim()
                 targetType = GetType(CommandDispatcher).Assembly.GetType(classNameOnly, throwOnError:=False, ignoreCase:=True)
+                If targetType Is Nothing Then
+                    For Each asm As Assembly In AppDomain.CurrentDomain.GetAssemblies()
+                        targetType = asm.GetType(classNameOnly, throwOnError:=False, ignoreCase:=True)
+                        If targetType IsNot Nothing Then Exit For
+                    Next
+                End If
             End If
 
             If targetType Is Nothing Then

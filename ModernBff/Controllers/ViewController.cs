@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 using ModernBff.Data;
 using ModernBff.MDL.Commands;
 using ModernBff.Models;
+using ModernBff.PRM;
 using ModernBff.Services;
 using Newtonsoft.Json.Linq;
 
@@ -396,6 +397,7 @@ public class ViewController : ControllerBase
             iParamToken = JToken.Parse(body.IParam.Value.GetRawText());
         }
 
+        CommandDispatcher.RegisterAssembly(typeof(ProjectSearchCommand).Assembly);
         CommandConfigEntry? entry = null;
         var cmd = CommandDispatcher.CreateCommand(resolvedName, iParamToken, ref entry);
 
@@ -415,6 +417,31 @@ public class ViewController : ControllerBase
         {
             savParam.ConfiguredProvider = provider;
             savParam.ConnectionString = connStr;
+        }
+        else if (cmd.IParam is ProjectSearchIParam prjSchParam && string.IsNullOrWhiteSpace(prjSchParam.ConfiguredProvider))
+        {
+            prjSchParam.ConfiguredProvider = provider;
+            prjSchParam.ConnectionString = connStr;
+        }
+        else if (cmd.IParam is ProjectSaveIParam prjSavParam && string.IsNullOrWhiteSpace(prjSavParam.ConfiguredProvider))
+        {
+            prjSavParam.ConfiguredProvider = provider;
+            prjSavParam.ConnectionString = connStr;
+        }
+        else if (cmd.IParam is WorkflowApplyIParam wfAppParam && string.IsNullOrWhiteSpace(wfAppParam.ConfiguredProvider))
+        {
+            wfAppParam.ConfiguredProvider = provider;
+            wfAppParam.ConnectionString = connStr;
+        }
+        else if (cmd.IParam is WorkflowVerifyIParam wfVrfParam && string.IsNullOrWhiteSpace(wfVrfParam.ConfiguredProvider))
+        {
+            wfVrfParam.ConfiguredProvider = provider;
+            wfVrfParam.ConnectionString = connStr;
+        }
+        else if (cmd.IParam is WorkflowApproveIParam wfAprParam && string.IsNullOrWhiteSpace(wfAprParam.ConfiguredProvider))
+        {
+            wfAprParam.ConfiguredProvider = provider;
+            wfAprParam.ConnectionString = connStr;
         }
 
         var (_, loginSource) = await PopulateViewIParamFromIIdentityAsync(cmd.IParam);

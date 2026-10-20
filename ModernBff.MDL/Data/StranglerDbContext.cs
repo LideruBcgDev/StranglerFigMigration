@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.EntityFrameworkCore;
+using ModernBff.PRM;
 
 namespace ModernBff.MDL.Data;
 
@@ -83,129 +84,9 @@ public class ItmTblEntity
 }
 
 /// <summary>
-/// 新規機能：案件統合管理テーブル (PRJ_TBL) - モダン側 (ModernBff.MDL) で管理
-/// 複数の品目 (ITM_TBL) や図面 (DRW_TBL) を関連付け可能（カンマ区切りまたは主コード指定）
+/// 新規機能：案件統合管理テーブル (PRJ_TBL) および ワークフロー管理テーブル (WF_TBL) のエンティティ定義は
+/// ModernBff.PRM プロジェクト (ModernBff.PRM.PrjTblEntity / ModernBff.PRM.WfTblEntity) に移動・集約されています。
 /// </summary>
-[Table("PRJ_TBL")]
-public class PrjTblEntity
-{
-    [Key]
-    [Column("PRJ_ID")]
-    [MaxLength(64)]
-    public string PrjId { get; set; } = string.Empty;
-
-    [Required]
-    [Column("PRJ_NM")]
-    [MaxLength(128)]
-    public string PrjNm { get; set; } = string.Empty;
-
-    [Column("CUSTOMER_ID")]
-    public int CustomerId { get; set; } = 1;
-
-    /// <summary>
-    /// 関連付けられた品目コード (複数ある場合はカンマ区切り 例: "ITM-001,ITM-002")
-    /// </summary>
-    [Column("TARGET_ITM_CD")]
-    [MaxLength(256)]
-    public string TargetItmCd { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 関連付けられたBOM番号
-    /// </summary>
-    [Column("LINKED_BOM_NO")]
-    [MaxLength(128)]
-    public string LinkedBomNo { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 関連付けられた図面番号 (複数ある場合はカンマ区切り 例: "DRW-2026-001,DRW-2026-002")
-    /// </summary>
-    [Column("LINKED_DRAWING_NO")]
-    [MaxLength(256)]
-    public string LinkedDrawingNo { get; set; } = string.Empty;
-
-    [Column("PRJ_STATUS")]
-    [MaxLength(64)]
-    public string PrjStatus { get; set; } = "DRAFT (未申請)";
-
-    [Column("APPROVED_BY")]
-    [MaxLength(128)]
-    public string? ApprovedBy { get; set; }
-
-    [Column("UPDATED_AT_UTC")]
-    public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
-}
-
-/// <summary>
-/// 新規機能：ワークフロー管理テーブル (WF_TBL) - モダン側 (ModernBff.MDL) で管理
-/// ・申請種別 (TARGET_TYPE): "PROJECT" (案件), "ITEM" (品目), "DRAWING" (図面) から申請可能
-/// ・ステータス遷移: "APPLIED (申請済・照査待ち)" -> "VERIFIED (照査済・承認待ち)" -> "APPROVED (承認完了)"
-/// ・案件 (PROJECT) を承認した場合は、関連づいている品目 (ITM_TBL)・図面 (DRW_TBL)・BOM も一括承認されます。
-/// </summary>
-[Table("WF_TBL")]
-public class WfTblEntity
-{
-    [Key]
-    [Column("WF_ID")]
-    [MaxLength(64)]
-    public string WfId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 申請対象種別: "PROJECT" (案件) | "ITEM" (品目) | "DRAWING" (図面)
-    /// </summary>
-    [Column("TARGET_TYPE")]
-    [MaxLength(32)]
-    public string TargetType { get; set; } = "PROJECT";
-
-    /// <summary>
-    /// 申請対象のキー (案件ID: PRJ-1001 / 品目コード: ITM-001 / 図面番号: DRW-2026-001)
-    /// </summary>
-    [Column("TARGET_ID")]
-    [MaxLength(64)]
-    public string TargetId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 後方互換用 (案件ID)
-    /// </summary>
-    [Column("PRJ_ID")]
-    [MaxLength(64)]
-    public string PrjId { get; set; } = string.Empty;
-
-    [Column("WF_TITLE")]
-    [MaxLength(256)]
-    public string WfTitle { get; set; } = string.Empty;
-
-    /// <summary>
-    /// ステータス: "APPLIED (申請済・照査待ち)" -> "VERIFIED (照査済・承認待ち)" -> "APPROVED (承認完了)"
-    /// </summary>
-    [Column("WF_STATUS")]
-    [MaxLength(64)]
-    public string WfStatus { get; set; } = "APPLIED (申請済・照査待ち)";
-
-    [Column("APPLIED_BY")]
-    [MaxLength(128)]
-    public string? AppliedBy { get; set; }
-
-    [Column("APPLIED_AT_UTC")]
-    public DateTime? AppliedAtUtc { get; set; }
-
-    [Column("VERIFIED_BY")]
-    [MaxLength(128)]
-    public string? VerifiedBy { get; set; }
-
-    [Column("VERIFIED_AT_UTC")]
-    public DateTime? VerifiedAtUtc { get; set; }
-
-    [Column("APPROVED_BY")]
-    [MaxLength(128)]
-    public string? ApprovedBy { get; set; }
-
-    [Column("APPROVED_ORG")]
-    [MaxLength(128)]
-    public string? ApprovedOrg { get; set; }
-
-    [Column("APPROVED_AT_UTC")]
-    public DateTime? ApprovedAtUtc { get; set; }
-}
 
 /// <summary>
 /// ModernBff.MDL 用 EF Core DbContext (Oracle / PostgreSQL / SQL Server / InMemory 切替対応)

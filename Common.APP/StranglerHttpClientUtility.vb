@@ -227,28 +227,57 @@ Namespace Global.Common.APP
             Dim response As HttpResponseMessage = Await PostJsonAsync(endpointPath, reqEnvelope)
             Dim rawJson As String = Await response.Content.ReadAsStringAsync()
 
-            Dim root As JObject = JObject.Parse(rawJson)
-            Dim oParamTypeToken As JToken = If(root("oParamType"), root("OParamType"))
-            Dim oParamToken As JToken = If(root("oParam"), root("OParam"))
-
-            If oParamToken Is Nothing Then
-                Throw New InvalidOperationException($"コマンド '{commandName}' の応答に OParam が含まれていません。Response: {rawJson}")
+            ' 【Web 画面 (.aspx) 起動リダイレクト判定】
+            ' ヘッダー X-Strangler-Redirect-Url または JSON 内の isRedirect / redirectUrl を検知した場合、
+            ' 独自の RedirectException を発生させ、クライアント側 (WinFormsClient) で Process.Start によるブラウザ起動を行う
+            Dim redirectHeaderUrl As String = Nothing
+            If response.Headers.Contains("X-Strangler-Redirect-Url") Then
+                redirectHeaderUrl = response.Headers.GetValues("X-Strangler-Redirect-Url").FirstOrDefault()
             End If
 
-            ' 1. まず CommandParamRegistry に登録された OParam 型を優先解決 (コマンド名から OParam 型が一意に決まるため確実)
-            Dim targetType As Type = CommandParamRegistry.GetOParamType(commandName)
+            If Not String.IsNullOrWhiteSpace(rawJson) AndAlso rawJson.TrimStart().StartsWith("{") Then
+                Dim root As JObject = JObject.Parse(rawJson)
+                Dim isRedirectToken As JToken = If(root("isRedirect"), root("IsRedirect"))
+                Dim redirectUrlToken As JToken = If(root("redirectUrl"), root("RedirectUrl"))
+                Dim reqCodeToken As JToken = If(root("reqCode"), root("ReqCode"))
+                Dim aspxToken As JToken = If(root("aspx"), root("Aspx"))
 
-            ' 2. 未登録の場合はレスポンス内の oParamType 文字列から解決
-            If targetType Is Nothing Then
-                Dim typeName As String = If(oParamTypeToken IsNot Nothing, oParamTypeToken.ToString(), String.Empty)
-                targetType = ResolvePrmType(typeName)
+                Dim isRedirect As Boolean = (isRedirectToken IsNot Nothing AndAlso Convert.ToBoolean(isRedirectToken)) OrElse
+                                            (redirectUrlToken IsNot Nothing) OrElse
+                                            Not String.IsNullOrWhiteSpace(redirectHeaderUrl)
+
+                If isRedirect Then
+                    Dim redirectUrl As String = If(redirectUrlToken IsNot Nothing, redirectUrlToken.ToString(), redirectHeaderUrl)
+                    Dim reqCode As String = If(reqCodeToken IsNot Nothing, reqCodeToken.ToString(), String.Empty)
+                    Dim aspxPage As String = If(aspxToken IsNot Nothing, aspxToken.ToString(), String.Empty)
+
+                    Throw New RedirectException(redirectUrl, reqCode, aspxPage, commandName)
+                End If
+
+                Dim oParamTypeToken As JToken = If(root("oParamType"), root("OParamType"))
+                Dim oParamToken As JToken = If(root("oParam"), root("OParam"))
+
+                If oParamToken Is Nothing Then
+                    Throw New InvalidOperationException($"コマンド '{commandName}' の応答に OParam が含まれていません。Response: {rawJson}")
+                End If
+
+                ' 1. まず CommandParamRegistry に登録された OParam 型を優先解決 (コマンド名から OParam 型が一意に決まるため確実)
+                Dim targetType As Type = CommandParamRegistry.GetOParamType(commandName)
+
+                ' 2. 未登録の場合はレスポンス内の oParamType 文字列から解決
+                If targetType Is Nothing Then
+                    Dim typeName As String = If(oParamTypeToken IsNot Nothing, oParamTypeToken.ToString(), String.Empty)
+                    targetType = ResolvePrmType(typeName)
+                End If
+
+                If targetType IsNot Nothing Then
+                    Return oParamToken.ToObject(targetType)
+                End If
+
+                Return oParamToken
             End If
 
-            If targetType IsNot Nothing Then
-                Return oParamToken.ToObject(targetType)
-            End If
-
-            Return oParamToken
+            Return Nothing
         End Function
 
         Private Shared Function ResolvePrmType(typeName As String) As Type

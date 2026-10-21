@@ -2,6 +2,7 @@ Imports System
 Imports System.Configuration
 Imports System.Web.UI
 Imports System.Web.UI.WebControls
+Imports Common.APP
 Imports LegacyMvc.MDL.Commands
 Imports LegacyMvc.MDL.Data
 Imports LegacyMvc.Models
@@ -26,14 +27,33 @@ Public Partial Class LegacyPortal
     Protected WithEvents gvItems As GridView
 
     Protected Sub Page_Load(sender As Object, e As EventArgs) Handles Me.Load
-        ' 1. Redis 共有セッションから loginuser (ユーザ・組織・権限) を復元
+        ' 1. URL の req_code から RequestManager 経由でログイン情報 (LoginUser) を復元
+        Dim reqCode As String = Request.QueryString("req_code")
+        Dim reqContext As RequestContextEntry = Nothing
+
+        If Not String.IsNullOrWhiteSpace(reqCode) Then
+            reqContext = RequestManager.GetRequest(reqCode)
+            If reqContext IsNot Nothing AndAlso reqContext.LoginUser IsNot Nothing Then
+                Session("loginuser") = reqContext.LoginUser
+                Session("UserId") = reqContext.LoginUser.UserId
+                Session("UserName") = reqContext.LoginUser.UserName
+            End If
+        End If
+
+        ' 2. セッションまたは Redis から loginuser を復元
+        Dim sessionUser As LoginUser = TryCast(Session("loginuser"), LoginUser)
         Dim lookupStatus As String = String.Empty
         Dim loginUser As SharedLoginUser = SharedLoginUser.ResolveFromRedis(New System.Web.HttpRequestWrapper(Request), lookupStatus)
 
-        If loginUser IsNot Nothing Then
+        If reqContext IsNot Nothing AndAlso reqContext.LoginUser IsNot Nothing Then
+            Dim u = reqContext.LoginUser
+            lblLoginUserInfo.Text = $"✓ req_code: [{reqCode}] より引継ログイン中: {u.UserName} ({u.UserId}) | 組織: [{u.OrganizationCode}] {u.OrganizationName} | 権限: {String.Join(", ", u.Roles)} (コマンド: {reqContext.CommandName})"
+        ElseIf sessionUser IsNot Nothing Then
+            lblLoginUserInfo.Text = $"セッションログイン中: {sessionUser.UserName} ({sessionUser.UserId}) | 組織: [{sessionUser.OrganizationCode}] {sessionUser.OrganizationName} | 権限: {String.Join(", ", sessionUser.Roles)} (ASP.NET Session)"
+        ElseIf loginUser IsNot Nothing Then
             lblLoginUserInfo.Text = $"ログイン中: {loginUser.UserName} ({loginUser.UserId}) | 組織: [{loginUser.OrganizationCode}] {loginUser.OrganizationName} | 権限: {String.Join(", ", loginUser.Roles)} ({lookupStatus})"
         Else
-            lblLoginUserInfo.Text = $"未ログイン ({lookupStatus}) - /login からログインすると .aspx 画面でも同じ loginuser が共有表示されます。"
+            lblLoginUserInfo.Text = $"未ログイン ({lookupStatus}) - /login または WinForms クライアントからのコマンド起動で loginuser が自動共有されます。"
         End If
 
         lblServerTime.Text = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")

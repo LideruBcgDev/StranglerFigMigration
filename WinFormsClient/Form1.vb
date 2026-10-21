@@ -56,6 +56,7 @@ Public Class Form1
     Private pnlScreens As FlowLayoutPanel
     Private WithEvents btnOpenItemWinForms As Button
     Private WithEvents btnExecItmAppCommand As Button
+    Private WithEvents btnExecDrwPortalCommand As Button
     Private WithEvents btnExecPrjSchCommand As Button
     Private WithEvents btnExecWfAprCommand As Button
     Private WithEvents btnOpenDrawingWeb As Button
@@ -142,6 +143,14 @@ Public Class Form1
             .FlatStyle = FlatStyle.Flat
         }
 
+        btnExecDrwPortalCommand = New Button() With {
+            .Text = "[Web起動: DRW.PORTAL]",
+            .Size = New Size(170, 32),
+            .BackColor = Color.FromArgb(217, 119, 6),
+            .ForeColor = Color.White,
+            .FlatStyle = FlatStyle.Flat
+        }
+
         btnExecPrjSchCommand = New Button() With {
             .Text = "[Modern: PRJ.SCH]",
             .Size = New Size(135, 32),
@@ -185,6 +194,7 @@ Public Class Form1
         pnlScreens.Controls.AddRange(New Control() {
             btnOpenItemWinForms,
             btnExecItmAppCommand,
+            btnExecDrwPortalCommand,
             btnExecPrjSchCommand,
             btnExecWfAprCommand,
             btnOpenDrawingWeb,
@@ -213,6 +223,7 @@ Public Class Form1
             .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         }
         cmbRoute.Items.AddRange(New Object() {
+            "/Client/execute?commandName=DRW.PORTAL",
             "/Client/execute?commandName=ITM.APP",
             "/Client/execute?commandName=PRJ.SCH",
             "/Client/execute?commandName=WF.APR",
@@ -371,6 +382,49 @@ Public Class Form1
                 $"Drawings.Count       : {oParam.Drawings.Count} 件"
         Catch ex As Exception
             txtResult.Text = $"[{CommandNames.ItmApp} 実行エラー]{Environment.NewLine}{ex}"
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' 【Web 画面 (.aspx) 起動コマンド実行: CommandNames.DrwPortal &amp; RedirectException による自動ブラウザ起動】
+    ''' ・サーバー側 CommandDefinitionAttribute に Aspx:="LegacyPortal.aspx" が設定されているコマンド
+    ''' ・StranglerHttpClientUtility がレスポンスのリダイレクト指定を検知し、独自の RedirectException を発生させる
+    ''' ・WinForms 側で RedirectException を catch し、Process.Start(ex.RedirectUrl) でブラウザを自動起動する
+    ''' ・URL の req_code により、RequestManager を通じてブラウザ画面にもログインユーザー情報が引き継がれる
+    ''' </summary>
+    Private Async Sub btnExecDrwPortalCommand_Click(sender As Object, e As EventArgs) Handles btnExecDrwPortalCommand.Click
+        If Not EnsureLoggedInOrPrompt() Then Return
+
+        Try
+            txtResult.Text = $"コマンド '{CommandNames.DrwPortal}' を実行中..." & Environment.NewLine
+
+            ' LegacyCommands.DrwPortal ("DRW.PORTAL") を呼び出し
+            Dim oParam As DrawingSearchOParam = Await HttpUtil.ExecuteCommandAsync(
+                LegacyCommands.DrwPortal,
+                Sub(p)
+                    p.Keyword = ""
+                End Sub,
+                "Client/execute")
+
+            txtResult.Text = $"コマンド実行完了: {oParam.SummaryMessage}"
+
+        Catch ex As RedirectException
+            ' 【既存仕様の完全再現】
+            ' 独自の RedirectException を catch してブラウザを自動起動
+            txtResult.Text =
+                "=== [検知成功] RedirectException による Web 画面自動起動 ===" & Environment.NewLine &
+                $"CommandName  : {ex.CommandName}" & Environment.NewLine &
+                $"AspxPage     : {ex.AspxPage}" & Environment.NewLine &
+                $"ReqCode      : {ex.ReqCode} (RequestManager 管理)" & Environment.NewLine &
+                $"RedirectUrl  : {ex.RedirectUrl}" & Environment.NewLine &
+                New String("-"c, 75) & Environment.NewLine &
+                "Process.Start(ex.RedirectUrl) でブラウザを自動起動しました。" & Environment.NewLine &
+                "ブラウザ側 (LegacyPortal.aspx) で req_code からログインユーザー・セッションが復元されます。"
+
+            OpenBrowserUrl(ex.RedirectUrl)
+
+        Catch ex As Exception
+            txtResult.Text = $"[{CommandNames.DrwPortal} 実行エラー]{Environment.NewLine}{ex}"
         End Try
     End Sub
 
@@ -547,6 +601,20 @@ Public Class Form1
             End If
 
             Dim currentBearer As String = If(String.IsNullOrEmpty(HttpUtil.BearerAccessToken), "(未取得 - /oauth/token で取得可能)", HttpUtil.BearerAccessToken)
+
+            ' レスポンスに isRedirect が含まれていた場合はブラウザを自動起動 (RedirectException 再現)
+            Try
+                Using doc As JsonDocument = JsonDocument.Parse(rawJson)
+                    Dim isRedirElem As JsonElement
+                    If doc.RootElement.TryGetProperty("isRedirect", isRedirElem) AndAlso isRedirElem.GetBoolean() Then
+                        Dim redirUrl As String = doc.RootElement.GetProperty("redirectUrl").GetString()
+                        If Not String.IsNullOrWhiteSpace(redirUrl) Then
+                            OpenBrowserUrl(redirUrl)
+                        End If
+                    End If
+                End Using
+            Catch
+            End Try
 
             txtResult.Text =
                 $"Status : {CInt(response.StatusCode)} ({response.ReasonPhrase})" & Environment.NewLine &

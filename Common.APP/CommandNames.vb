@@ -40,6 +40,9 @@ Namespace Global.Common.APP
         ''' <summary>顧客情報照会コマンド ("CUS.SCH" -> CustomerQueryCommand)</summary>
         Public Const CusSch As String = "CUS.SCH"
 
+        ''' <summary>図面・品目ポータル Web 画面起動コマンド ("DRW.PORTAL" -> LegacyPortal.aspx リダイレクト)</summary>
+        Public Const DrwPortal As String = "DRW.PORTAL"
+
         ' --- ModernBff.MDL コマンド名定数 ---
         ''' <summary>案件統合検索コマンド ("PRJ.SCH" -> ProjectSearchCommand)</summary>
         Public Const PrjSch As String = "PRJ.SCH"

@@ -26,6 +26,7 @@ Namespace Global.LegacyMvc.PRM
     ''' <summary>
     ''' コマンド定義属性 (別案: Config の文字列手書きに代わる、属性＋DI/自動登録方式用)
     ''' 例: &lt;CommandDefinition("ITM.APP", Db:=1)&gt;
+    ''' 例: &lt;CommandDefinition("DRW.PORTAL", Db:=1, Aspx:="LegacyPortal.aspx")&gt;
     ''' </summary>
     <AttributeUsage(AttributeTargets.Class, AllowMultiple:=True)>
     Public Class CommandDefinitionAttribute
@@ -34,11 +35,13 @@ Namespace Global.LegacyMvc.PRM
         Public ReadOnly Property Name As String
         Public Property Db As Integer = 1
         Public Property Description As String = String.Empty
+        Public Property Aspx As String = String.Empty
 
-        Public Sub New(name As String, Optional db As Integer = 1, Optional description As String = "")
+        Public Sub New(name As String, Optional db As Integer = 1, Optional description As String = "", Optional aspx As String = "")
             Me.Name = name
             Me.Db = db
             Me.Description = description
+            Me.Aspx = aspx
         End Sub
     End Class
 
@@ -515,6 +518,7 @@ Namespace Global.LegacyMvc.PRM
         Inherits OParamBase
 
         Public Property Drawings As New List(Of DrawingRecord)()
+        Public Property SummaryMessage As String = String.Empty
     End Class
 
     ''' <summary>
@@ -568,6 +572,7 @@ Namespace Global.LegacyMvc.PRM
         Public Shared ReadOnly DrwSch As New CommandSpec(Of DrawingSearchIParam, DrawingSearchOParam)(CommandNames.DrwSch)
         Public Shared ReadOnly DrwSav As New CommandSpec(Of DrawingSaveIParam, DrawingSaveOParam)(CommandNames.DrwSav)
         Public Shared ReadOnly CusSch As New CommandSpec(Of CustomerQueryIParam, CustomerQueryOParam)(CommandNames.CusSch)
+        Public Shared ReadOnly DrwPortal As New CommandSpec(Of DrawingSearchIParam, DrawingSearchOParam)(CommandNames.DrwPortal)
 
         Private Sub New()
         End Sub

@@ -41,6 +41,29 @@ public class ViewController : ControllerBase
         _logger = logger;
     }
 
+    private string BuildPublicRedirectUrl(string aspxPage, string reqCode)
+    {
+        string? proto = Request.Headers["X-Forwarded-Proto"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(proto))
+        {
+            proto = Request.IsHttps ? "https" : "http";
+        }
+
+        string? host = Request.Headers["X-Forwarded-Host"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            host = Request.Headers["Host"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(host) && Request.Host.HasValue)
+            {
+                host = Request.Host.Value;
+            }
+        }
+        if (string.IsNullOrWhiteSpace(host)) host = "localhost:5000";
+
+        string pagePath = aspxPage.TrimStart('/');
+        return $"{proto}://{host}/{pagePath}?req_code={Uri.EscapeDataString(reqCode)}";
+    }
+
     /// <summary>
     /// ViewController 用: IIdentity (HttpContext.User.Identity) より LoginUser を取得し command.IParam.LoginUser に設定します。
     /// Redis 共有セッションがある場合は HttpContext.User (ClaimsPrincipal / IIdentity) にブリッジした上で取得します。
@@ -553,6 +576,34 @@ public class ViewController : ControllerBase
         }
 
         var (_, loginSource) = await PopulateViewIParamFromIIdentityAsync(cmd.IParam);
+
+        // 【Web 画面 (.aspx) 起動リダイレクト判定】
+        // CommandDefinitionAttribute に Aspx が指定されている場合、RequestManager で req_code を発行し、
+        // クライアント (StranglerHttpClientUtility) にリダイレクト情報を返してブラウザ起動を促す
+        if (entry != null && !string.IsNullOrWhiteSpace(entry.Aspx))
+        {
+            var paramDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var reqEntry = RequestManager.RegisterRequest(entry.Aspx, cmd.IParam.LoginUser, entry.Name, paramDict);
+            string redirectUrl = BuildPublicRedirectUrl(entry.Aspx, reqEntry.ReqCode);
+
+            Response.Headers["X-Strangler-Redirect-Url"] = redirectUrl;
+            Response.Headers["X-Strangler-Req-Code"] = reqEntry.ReqCode;
+            Response.Headers["X-Strangler-Aspx"] = entry.Aspx;
+
+            return Ok(new
+            {
+                isRedirect = true,
+                redirectUrl = redirectUrl,
+                req_code = reqEntry.ReqCode,
+                reqCode = reqEntry.ReqCode,
+                aspx = entry.Aspx,
+                commandName = entry.Name,
+                message = $"Web 画面 ({entry.Aspx}) へのリダイレクトが要求されました。(req_code={reqEntry.ReqCode})",
+                loginUser = cmd.IParam.LoginUser,
+                iParam = cmd.IParam,
+                oParam = cmd.OParam
+            });
+        }
 
         try
         {

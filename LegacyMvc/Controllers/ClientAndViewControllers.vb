@@ -33,6 +33,25 @@ Namespace Controllers
     Public Class ClientController
         Inherits Controller
 
+        Private Function BuildPublicRedirectUrl(aspxPage As String, reqCode As String) As String
+            Dim proto As String = Request.Headers("X-Forwarded-Proto")
+            If String.IsNullOrWhiteSpace(proto) Then
+                proto = If(Request.IsSecureConnection, "https", "http")
+            End If
+
+            Dim host As String = Request.Headers("X-Forwarded-Host")
+            If String.IsNullOrWhiteSpace(host) Then
+                host = Request.Headers("Host")
+                If String.IsNullOrWhiteSpace(host) AndAlso Request.Url IsNot Nothing Then
+                    host = Request.Url.Authority
+                End If
+            End If
+            If String.IsNullOrWhiteSpace(host) Then host = "localhost:5000"
+
+            Dim pagePath As String = aspxPage.TrimStart("/"c)
+            Return $"{proto}://{host}/{pagePath}?req_code={Uri.EscapeDataString(reqCode)}"
+        End Function
+
         Private Sub PopulateClientIParamAndSession(iParam As IParamBase, Optional clientProvidedLoginUser As LoginUser = Nothing)
             If Session IsNot Nothing Then
                 iParam.SessionId = Session.SessionID
@@ -139,6 +158,32 @@ Namespace Controllers
             Dim cmd As ICommand = CommandDispatcher.CreateCommand(commandName, iParamJson, resolvedEntry)
 
             PopulateClientIParamAndSession(cmd.IParam, bodyLoginUser)
+
+            ' 【Web 画面 (.aspx) 起動リダイレクト判定】
+            ' CommandDefinitionAttribute に Aspx が指定されている場合、RequestManager で req_code を発行し、
+            ' クライアント (StranglerHttpClientUtility) にリダイレクト情報を返してブラウザ起動を促す
+            If Not String.IsNullOrWhiteSpace(resolvedEntry.Aspx) Then
+                Dim paramDict As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+                Dim reqEntry = RequestManager.RegisterRequest(resolvedEntry.Aspx, cmd.IParam.LoginUser, resolvedEntry.Name, paramDict)
+                Dim redirectUrl As String = BuildPublicRedirectUrl(resolvedEntry.Aspx, reqEntry.ReqCode)
+
+                Response.Headers("X-Strangler-Redirect-Url") = redirectUrl
+                Response.Headers("X-Strangler-Req-Code") = reqEntry.ReqCode
+                Response.Headers("X-Strangler-Aspx") = resolvedEntry.Aspx
+
+                Dim redirectJson As String = JsonConvert.SerializeObject(New With {
+                    .isRedirect = True,
+                    .redirectUrl = redirectUrl,
+                    .reqCode = reqEntry.ReqCode,
+                    .aspx = resolvedEntry.Aspx,
+                    .commandName = resolvedEntry.Name,
+                    .message = $"Web 画面 ({resolvedEntry.Aspx}) へのリダイレクトが要求されました。(req_code={reqEntry.ReqCode})",
+                    .loginUser = cmd.IParam.LoginUser,
+                    .iParam = cmd.IParam,
+                    .oParam = cmd.OParam
+                })
+                Return Content(redirectJson, "application/json")
+            End If
 
             Try
                 cmd.Validate()
@@ -321,6 +366,25 @@ Namespace Controllers
     Public Class ViewController
         Inherits Controller
 
+        Private Function BuildPublicRedirectUrl(aspxPage As String, reqCode As String) As String
+            Dim proto As String = Request.Headers("X-Forwarded-Proto")
+            If String.IsNullOrWhiteSpace(proto) Then
+                proto = If(Request.IsSecureConnection, "https", "http")
+            End If
+
+            Dim host As String = Request.Headers("X-Forwarded-Host")
+            If String.IsNullOrWhiteSpace(host) Then
+                host = Request.Headers("Host")
+                If String.IsNullOrWhiteSpace(host) AndAlso Request.Url IsNot Nothing Then
+                    host = Request.Url.Authority
+                End If
+            End If
+            If String.IsNullOrWhiteSpace(host) Then host = "localhost:5000"
+
+            Dim pagePath As String = aspxPage.TrimStart("/"c)
+            Return $"{proto}://{host}/{pagePath}?req_code={Uri.EscapeDataString(reqCode)}"
+        End Function
+
         Private Sub PopulateViewIParamFromIIdentity(iParam As IParamBase)
             If Session IsNot Nothing Then
                 iParam.SessionId = Session.SessionID
@@ -388,6 +452,31 @@ Namespace Controllers
             Dim resolvedEntry As CommandConfigEntry = Nothing
             Dim cmd As ICommand = CommandDispatcher.CreateCommand(commandName, iParamJson, resolvedEntry)
             PopulateViewIParamFromIIdentity(cmd.IParam)
+
+            ' 【Web 画面 (.aspx) 起動リダイレクト判定】
+            If Not String.IsNullOrWhiteSpace(resolvedEntry.Aspx) Then
+                Dim paramDict As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+                Dim reqEntry = RequestManager.RegisterRequest(resolvedEntry.Aspx, cmd.IParam.LoginUser, resolvedEntry.Name, paramDict)
+                Dim redirectUrl As String = BuildPublicRedirectUrl(resolvedEntry.Aspx, reqEntry.ReqCode)
+
+                Response.Headers("X-Strangler-Redirect-Url") = redirectUrl
+                Response.Headers("X-Strangler-Req-Code") = reqEntry.ReqCode
+                Response.Headers("X-Strangler-Aspx") = resolvedEntry.Aspx
+
+                Dim redirectJson As String = JsonConvert.SerializeObject(New With {
+                    .isRedirect = True,
+                    .redirectUrl = redirectUrl,
+                    .reqCode = reqEntry.ReqCode,
+                    .aspx = resolvedEntry.Aspx,
+                    .commandName = resolvedEntry.Name,
+                    .message = $"Web 画面 ({resolvedEntry.Aspx}) へのリダイレクトが要求されました。(req_code={reqEntry.ReqCode})",
+                    .loginUser = cmd.IParam.LoginUser,
+                    .iParam = cmd.IParam,
+                    .oParam = cmd.OParam
+                })
+                Return Content(redirectJson, "application/json")
+            End If
+
             cmd.Validate()
             cmd.Execute()
 

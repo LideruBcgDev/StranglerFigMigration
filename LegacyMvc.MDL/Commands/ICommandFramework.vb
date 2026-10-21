@@ -56,6 +56,31 @@ Public Class CommandsLegacyApprovalStore
     End Sub
 End Class
 
+''' <summary>
+''' 【Web 画面 (.aspx) を呼び出すコマンド例: DRW.PORTAL】
+''' CommandDefinition 属性に Aspx:="LegacyPortal.aspx" が設定されており、
+''' ClientController / ViewController で実行された際に RequestManager で req_code を発行し、
+''' クライアントへリダイレクト情報を返してブラウザ起動を促します。
+''' </summary>
+<CommandDefinition(CommandNames.DrwPortal, Db:=1, Description:="図面・品目ポータル Web 画面起動 (LegacyPortal.aspx)", Aspx:="LegacyPortal.aspx")>
+Public Class LegacyPortalOpenCommand
+    Inherits Commands.CommandBase(Of DrawingSearchIParam, DrawingSearchOParam)
+
+    Public Sub New()
+        MyBase.New(Nothing)
+    End Sub
+
+    Public Sub New(iParam As DrawingSearchIParam)
+        MyBase.New(iParam)
+    End Sub
+
+    Protected Overrides Sub ExecuteCore()
+        Dim cmd As New Commands.LegacyDrawingCrudCommand()
+        _oParam.Drawings = cmd.Search(_iParam.Keyword)
+        _oParam.SummaryMessage = "[DRW.PORTAL] Web 画面 LegacyPortal.aspx へのリダイレクト対象コマンドです。"
+    End Sub
+End Class
+
 Namespace Commands
 
     ''' <summary>
@@ -398,6 +423,7 @@ Namespace Commands
         Public Property Name As String = String.Empty
         Public Property CommandTypeString As String = String.Empty
         Public Property Db As Integer = 1
+        Public Property Aspx As String = String.Empty
         Public Property RegistrationSource As String = "Config (<command name=... />)"
     End Class
 
@@ -433,17 +459,20 @@ Namespace Commands
                 For Each attrObj As Object In attrs
                     Dim attr As CommandDefinitionAttribute = DirectCast(attrObj, CommandDefinitionAttribute)
                     If Not ConfigMappings.ContainsKey(attr.Name) Then
-                        RegisterConfigCommand(attr.Name, $"{t.FullName},{t.Assembly.GetName().Name}", attr.Db, $"Attribute Auto-Discovery ({t.Assembly.GetName().Name}: <CommandDefinition(""{attr.Name}"")>)")
+                        RegisterConfigCommand(attr.Name, $"{t.FullName},{t.Assembly.GetName().Name}", attr.Db, $"Attribute Auto-Discovery ({t.Assembly.GetName().Name}: <CommandDefinition(""{attr.Name}"")>)", attr.Aspx)
+                    ElseIf Not String.IsNullOrWhiteSpace(attr.Aspx) Then
+                        ConfigMappings(attr.Name).Aspx = attr.Aspx
                     End If
                 Next
             Next
         End Sub
 
-        Public Shared Sub RegisterConfigCommand(name As String, commandTypeString As String, db As Integer, Optional source As String = "Config")
+        Public Shared Sub RegisterConfigCommand(name As String, commandTypeString As String, db As Integer, Optional source As String = "Config", Optional aspx As String = "")
             ConfigMappings(name) = New CommandConfigEntry With {
                 .Name = name,
                 .CommandTypeString = commandTypeString,
                 .Db = db,
+                .Aspx = If(aspx, String.Empty),
                 .RegistrationSource = source
             }
         End Sub

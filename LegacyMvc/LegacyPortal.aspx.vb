@@ -40,20 +40,16 @@ Public Partial Class LegacyPortal
             End If
         End If
 
-        ' 2. セッションまたは Redis から loginuser を復元
+        ' 2. セッションから loginuser を復元
         Dim sessionUser As LoginUser = TryCast(Session("loginuser"), LoginUser)
-        Dim lookupStatus As String = String.Empty
-        Dim loginUser As SharedLoginUser = SharedLoginUser.ResolveFromRedis(New System.Web.HttpRequestWrapper(Request), lookupStatus)
 
         If reqContext IsNot Nothing AndAlso reqContext.LoginUser IsNot Nothing Then
             Dim u = reqContext.LoginUser
             lblLoginUserInfo.Text = $"✓ req_code: [{reqCode}] より引継ログイン中: {u.UserName} ({u.UserId}) | 組織: [{u.OrganizationCode}] {u.OrganizationName} | 権限: {String.Join(", ", u.Roles)} (コマンド: {reqContext.CommandName})"
         ElseIf sessionUser IsNot Nothing Then
-            lblLoginUserInfo.Text = $"セッションログイン中: {sessionUser.UserName} ({sessionUser.UserId}) | 組織: [{sessionUser.OrganizationCode}] {sessionUser.OrganizationName} | 権限: {String.Join(", ", sessionUser.Roles)} (ASP.NET Session)"
-        ElseIf loginUser IsNot Nothing Then
-            lblLoginUserInfo.Text = $"ログイン中: {loginUser.UserName} ({loginUser.UserId}) | 組織: [{loginUser.OrganizationCode}] {loginUser.OrganizationName} | 権限: {String.Join(", ", loginUser.Roles)} ({lookupStatus})"
+            lblLoginUserInfo.Text = $"セッションログイン中: {sessionUser.UserName} ({sessionUser.UserId}) | 組織: [{sessionUser.OrganizationCode}] {sessionUser.OrganizationName} | 権限: {String.Join(", ", sessionUser.Roles)} (ASP.NET InProc Session)"
         Else
-            lblLoginUserInfo.Text = $"未ログイン ({lookupStatus}) - /login または WinForms クライアントからのコマンド起動で loginuser が自動共有されます。"
+            lblLoginUserInfo.Text = "未ログイン - WinForms クライアントからのコマンド起動で loginuser が自動引き継ぎされます。"
         End If
 
         lblServerTime.Text = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")

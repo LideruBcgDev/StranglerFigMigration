@@ -32,7 +32,7 @@ Namespace Controllers
         ' GET: /LegacyData/GetCustomer?id=1
         <HttpGet>
         Public Function GetCustomer(Optional id As Integer = 1) As ActionResult
-            Dim sessionValue As String = "RedisOffline"
+            Dim sessionValue As String = $"SessionID={Session.SessionID} (InProc)"
             Dim loginUserLookupStatus As String = String.Empty
             Dim loginUser As SharedLoginUser = SharedLoginUser.ResolveFromRedis(Request, loginUserLookupStatus)
 
@@ -42,17 +42,8 @@ Namespace Controllers
                 If loginUser IsNot Nothing Then
                     Session("loginuser") = loginUser
                 End If
-
-                If MvcApplication.RedisConnection.IsConnected Then
-                    Dim db = MvcApplication.GetRedisDatabase()
-                    Dim sharedKey As String = $"StranglerShared:Customer:{id}:LastLegacyAccess"
-                    Dim accessedBy As String = If(loginUser IsNot Nothing, $"{loginUser.UserName} ({loginUser.OrganizationName})", "Anonymous")
-                    Dim valueToStore As String = $"{DateTime.UtcNow:O} by {accessedBy}"
-                    db.StringSet(sharedKey, valueToStore, TimeSpan.FromMinutes(30))
-                    sessionValue = $"SessionID={Session.SessionID}, RedisKey={sharedKey}"
-                End If
             Catch ex As Exception
-                sessionValue = $"Fallback(NoRedis): {ex.Message}"
+                sessionValue = $"Error: {ex.Message}"
             End Try
 
             Dim customerData = New With {

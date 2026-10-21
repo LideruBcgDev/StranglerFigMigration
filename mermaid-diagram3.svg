@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 865.8659999999999 1042.7" width="865.8659999999999" height="1042.7" style="--bg:#1F1F1F;--fg:#CCCCCC;--line:#CCCCCC;--accent:#0078D4;--muted:#CCCCCCCC;--surface:#181818;--border:#CCCCCC;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<g class="subgraph" data-id="Clients" data-label="すべてのクライアント (ブラウザ / WinForms / PowerShell / AI)">
+  <rect x="317.2749999999999" y="330.70000000000005" width="225.11399999999998" height="113.80000000000001" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <rect x="317.2749999999999" y="330.70000000000005" width="225.11399999999998" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="329.2749999999999" y="344.70000000000005" font-size="12" font-weight="600" fill="var(--_text-sec)" dy="4.199999999999999">すべてのクライアント (ブラウザ / WinForms / PowerShell / AI)</text>
+</g>
+<g class="subgraph" data-id="Process1" data-label="【プロセス1】 ModernBff (:5000) - .NET 10 Web (Embedded YARP)">
+  <rect x="40" y="560.8000000000001" width="628.651" height="433.90000000000003" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <rect x="40" y="560.8000000000001" width="628.651" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="52" y="574.8000000000001" font-size="12" font-weight="600" fill="var(--_text-sec)" dy="4.199999999999999">【プロセス1】 ModernBff (:5000) - .NET 10 Web (Embedded YARP)</text>
+<g class="subgraph" data-id="ModernDirect" data-label="① モダン自前処理 (直接応答)">
+  <rect x="56" y="604.8000000000001" width="368.12699999999995" height="281.6" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <rect x="56" y="604.8000000000001" width="368.12699999999995" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="68" y="618.8000000000001" font-size="12" font-weight="600" fill="var(--_text-sec)" dy="4.199999999999999">① モダン自前処理 (直接応答)</text>
+</g>
+</g>
+<g class="subgraph" data-id="Process2" data-label="【プロセス2】 LegacyMvc (:5001) - Katana / IIS">
+  <rect x="367.9689999999999" y="40" width="377.897" height="270.70000000000005" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <rect x="367.9689999999999" y="40" width="377.897" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="379.9689999999999" y="54" font-size="12" font-weight="600" fill="var(--_text-sec)" dy="4.199999999999999">【プロセス2】 LegacyMvc (:5001) - Katana / IIS</text>
+<g class="subgraph" data-id="LegacyDirect" data-label="② レガシー処理 (YARP透過転送)">
+  <rect x="383.9689999999999" y="84" width="345.897" height="210.70000000000002" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <rect x="383.9689999999999" y="84" width="345.897" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="395.9689999999999" y="98" font-size="12" font-weight="600" fill="var(--_text-sec)" dy="4.199999999999999">② レガシー処理 (YARP透過転送)</text>
+</g>
+</g>
+
+
+<polyline class="edge" data-from="User" data-to="YarpRouter" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="http://localhost:5000/*" points="526.3889999999999,401.6 542.3889999999999,401.6 552.3889999999999,401.6 552.3889999999999,560.8000000000001 552.3889999999999,765.2666666666668" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="YarpRouter" data-to="ModernDirect" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="/api/&lt;i&gt;, /oauth/&lt;/i&gt;, /api/bff/*" points="518.9683333333332,802.1666666666667 518.9683333333332,966.7 379.5159166666666,966.7 379.5159166666666,994.7 765.8659999999999,994.7 765.8659999999999,405.90000000000003 339.5159166666666,405.90000000000003 200.06349999999998,405.90000000000003 200.06349999999998,325.6" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="YarpRouter" data-to="LegacyDirect" data-style="dotted" data-arrow-start="false" data-arrow-end="true" data-label="その他の未移行URL / .aspx / /legacy-api/* (透過転送)" points="585.8096666666665,802.1666666666667 585.8096666666665,994.7" fill="none" stroke="var(--_line)" stroke-width="1" stroke-dasharray="4 4" marker-end="url(#arrowhead)" />
+<g class="edge-label" data-from="User" data-to="YarpRouter" data-label="http://localhost:5000/*">
+  <rect x="491.8889999999999" y="487.50000000000006" width="120.41200000000002" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="552.0949999999999" y="502.65000000000003" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">http://localhost:5000/*</text>
+</g>
+<g class="edge-label" data-from="YarpRouter" data-to="ModernDirect" data-label="/api/&lt;i&gt;, /oauth/&lt;/i&gt;, /api/bff/*">
+  <rect x="706.8479999999998" y="719.9333333333334" width="118.03600000000003" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="765.8659999999999" y="735.0833333333334" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">/api/<tspan font-style="italic">, /oauth/</tspan>, /api/bff/*</text>
+</g>
+<g class="edge-label" data-from="YarpRouter" data-to="LegacyDirect" data-label="その他の未移行URL / .aspx / /legacy-api/* (透過転送)">
+  <rect x="-4" y="-5" width="277.82199999999995" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="134.91099999999997" y="10.15" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">その他の未移行URL / .aspx / /legacy-api/* (透過転送)</text>
+</g>
+<g class="node" data-id="SharedDb" data-label="業務 DB / InMemory (USR_TBL, ITM_TBL 等)" data-shape="cylinder">
+  <rect x="40" y="47" width="307.9689999999999" height="36.900000000000006" fill="var(--_node-fill)" stroke="none" />
+  <line x1="40" y1="47" x2="40" y2="83.9" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <line x1="347.9689999999999" y1="47" x2="347.9689999999999" y2="83.9" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="193.98449999999994" cy="83.9" rx="153.98449999999994" ry="7" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="193.98449999999994" cy="47" rx="153.98449999999994" ry="7" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="193.98449999999994" y="65.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">業務 DB / InMemory (USR_TBL, ITM_TBL 等)</text>
+</g>
+<g class="node" data-id="User" data-label="アクセス窓口は1つのみ
+http://server:5000/*" data-shape="rectangle">
+  <rect x="333.2749999999999" y="374.70000000000005" width="193.11399999999998" height="53.800000000000004" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="429.8319999999999" y="401.6" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="429.8319999999999" dy="-3.9000000000000012">アクセス窓口は1つのみ</tspan><tspan x="429.8319999999999" dy="16.900000000000002">http://server:5000/*</tspan></text>
+</g>
+<g class="node" data-id="YarpRouter" data-label="内蔵 YARP ルーティング" data-shape="rectangle">
+  <rect x="452.12699999999995" y="765.2666666666668" width="200.52399999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="552.3889999999999" y="783.7166666666668" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">内蔵 YARP ルーティング</text>
+</g>
+<g class="node" data-id="OAuth" data-label="OAuth (/oauth/token) - パターンA (USR_TBL照合)" data-shape="rectangle">
+  <rect x="72" y="765.2666666666668" width="336.12699999999995" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="240.06349999999998" y="783.7166666666668" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">OAuth (/oauth/token) - パターンA (USR_TBL照合)</text>
+</g>
+<g class="node" data-id="RestApi" data-label="REST API (/api/status, /api/items 等)" data-shape="rectangle">
+  <rect x="72" y="648.8000000000001" width="247.94799999999995" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="195.974" y="667.2500000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">REST API (/api/status, /api/items 等)</text>
+</g>
+<g class="node" data-id="McpApi" data-label="MCP 3方式 (/api/bff/mcp/streamable 等)" data-shape="rectangle">
+  <rect x="72" y="705.7" width="271.65999999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="207.82999999999998" y="724.1500000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">MCP 3方式 (/api/bff/mcp/streamable 等)</text>
+</g>
+<g class="node" data-id="MemoryToken" data-label="インメモリ トークンストア (Redis不要)" data-shape="cylinder">
+  <rect x="72" y="826.5000000000001" width="295.37199999999996" height="36.900000000000006" fill="var(--_node-fill)" stroke="none" />
+  <line x1="72" y1="826.5000000000001" x2="72" y2="863.4000000000001" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <line x1="367.37199999999996" y1="826.5000000000001" x2="367.37199999999996" y2="863.4000000000001" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="219.68599999999998" cy="863.4000000000001" rx="147.68599999999998" ry="7" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <ellipse cx="219.68599999999998" cy="826.5000000000001" rx="147.68599999999998" ry="7" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="219.68599999999998" y="844.9500000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">インメモリ トークンストア (Redis不要)</text>
+</g>
+<g class="node" data-id="LegacyLogin" data-label="LegacyLogin.aspx (レガシーログイン画面)" data-shape="rectangle">
+  <rect x="399.9689999999999" y="184.9" width="312.41499999999996" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="556.1764999999998" y="203.35000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">LegacyLogin.aspx (レガシーログイン画面)</text>
+</g>
+<g class="node" data-id="LegacyPortal" data-label="LegacyPortal.aspx (レガシーポータル画面)" data-shape="rectangle">
+  <rect x="399.9689999999999" y="241.8" width="313.897" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="556.9174999999999" y="260.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">LegacyPortal.aspx (レガシーポータル画面)</text>
+</g>
+<g class="node" data-id="LegacyCommands" data-label="ClientController / LegacyDataController" data-shape="rectangle">
+  <rect x="399.9689999999999" y="128" width="273.8829999999999" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="536.9104999999998" y="146.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">ClientController / LegacyDataController</text>
+</g>
+</svg>

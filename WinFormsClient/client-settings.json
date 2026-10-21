@@ -1,8 +1,8 @@
 {
   "GatewayBaseUrl": "http://localhost:5000/",
   "LegacyBaseUrl": "http://localhost:5001/",
-  "ModernApiBaseUrl": "http://localhost:5002/",
+  "ModernApiBaseUrl": "http://localhost:5000/",
   "LoginMode": "Legacy",
-  "LegacyLoginUrl": "http://localhost:5001/LegacyLogin.aspx?clientWebView=true",
-  "Comment": "LoginMode: 'Legacy' (レガシーログイン画面直接) または 'Gateway' (従来のGateway経由/login)"
+  "LegacyLoginUrl": "http://localhost:5000/LegacyLogin.aspx?clientWebView=true",
+  "Comment": "【推奨2プロセス構成】ModernBff (:5000) が YARP を内蔵し全リクエストを一括受付。LoginMode: 'Legacy' (レガシーログイン画面) または 'Gateway' (従来のGateway経由/login)"
 }

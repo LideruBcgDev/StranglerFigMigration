@@ -15,7 +15,7 @@ public class SharedLoginUserStore
     public const string HeaderName = "X-Strangler-AuthToken";
     public const string RedisKeyPrefix = "StranglerSession:LoginUser:";
 
-    private readonly IConnectionMultiplexer _redis;
+    private readonly IConnectionMultiplexer? _redis;
     private readonly IConfiguration _configuration;
     private readonly ILogger<SharedLoginUserStore> _logger;
     private static readonly ConcurrentDictionary<string, string> FallbackMemoryStore = new();
@@ -25,9 +25,9 @@ public class SharedLoginUserStore
     private string? _overrideDefaultSsoProviderId;
 
     public SharedLoginUserStore(
-        IConnectionMultiplexer redis,
         IConfiguration configuration,
-        ILogger<SharedLoginUserStore> logger)
+        ILogger<SharedLoginUserStore> logger,
+        IConnectionMultiplexer? redis = null)
     {
         _redis = redis;
         _configuration = configuration;
@@ -121,7 +121,7 @@ public class SharedLoginUserStore
 
         try
         {
-            if (_redis.IsConnected)
+            if (_redis?.IsConnected == true)
             {
                 var db = _redis.GetDatabase();
                 await db.StringSetAsync(key, json, ttl);
@@ -149,7 +149,7 @@ public class SharedLoginUserStore
         {
             try
             {
-                if (_redis.IsConnected)
+                if (_redis?.IsConnected == true)
                 {
                     var db = _redis.GetDatabase();
                     var redisValue = await db.StringGetAsync(key);
@@ -186,7 +186,7 @@ public class SharedLoginUserStore
 
         try
         {
-            if (_redis.IsConnected)
+            if (_redis?.IsConnected == true)
             {
                 var db = _redis.GetDatabase();
                 await db.KeyDeleteAsync(key);
@@ -264,7 +264,7 @@ public class SharedLoginUserStore
         {
             try
             {
-                if (_redis.IsConnected)
+                if (_redis?.IsConnected == true)
                 {
                     var db = _redis.GetDatabase();
                     await db.StringSetAsync(key, json, ttl);
@@ -318,7 +318,7 @@ public class SharedLoginUserStore
         {
             try
             {
-                if (_redis.IsConnected)
+                if (_redis?.IsConnected == true)
                 {
                     var db = _redis.GetDatabase();
                     await db.StringSetAsync(key, json, ttl);
@@ -361,7 +361,7 @@ public class SharedLoginUserStore
         {
             try
             {
-                if (_redis.IsConnected)
+                if (_redis?.IsConnected == true)
                 {
                     var db = _redis.GetDatabase();
                     var val = await db.StringGetAsync(key);

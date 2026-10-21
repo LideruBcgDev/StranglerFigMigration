@@ -20,7 +20,7 @@ builder.Services.AddDbContext<StranglerDbContext>(options =>
         out _);
 });
 
-// 1. 分散キャッシュ・分散セッションのセットアップ (疎結合モード時はインメモリキャッシュを使用)
+// 1. 分散キャッシュ・分散セッションのセットアップ (疎結合・2プロセスモード時はインメモリキャッシュを使用)
 bool enableRedisSession = builder.Configuration.GetValue<bool>("StranglerFig:EnableRedisSession", false);
 var redisConnectionString = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379,abortConnect=false";
 
@@ -30,6 +30,27 @@ if (enableRedisSession)
     {
         options.Configuration = redisConnectionString;
         options.InstanceName = "StranglerSharedSession:";
+    });
+
+    builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    {
+        try
+        {
+            var options = ConfigurationOptions.Parse(redisConnectionString);
+            options.AbortOnConnectFail = false;
+            options.ConnectTimeout = 1500;
+            return ConnectionMultiplexer.Connect(options);
+        }
+        catch
+        {
+            var options = new ConfigurationOptions
+            {
+                AbortOnConnectFail = false,
+                ConnectTimeout = 1000
+            };
+            options.EndPoints.Add("127.0.0.1", 6379);
+            return ConnectionMultiplexer.Connect(options);
+        }
     });
 }
 else
@@ -46,30 +67,14 @@ builder.Services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 
-// 3. LegacyMvc と直接 Redis KVS を共有するための IConnectionMultiplexer & SharedLoginUserStore 登録
-// ※ 疎結合モード (StranglerFig:EnableRedisSession=false) 時は Redis 停止中も安全にインメモリへフォールバックします
-builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
-{
-    try
-    {
-        var options = ConfigurationOptions.Parse(redisConnectionString);
-        options.AbortOnConnectFail = false;
-        options.ConnectTimeout = 1500;
-        return ConnectionMultiplexer.Connect(options);
-    }
-    catch
-    {
-        var options = new ConfigurationOptions
-        {
-            AbortOnConnectFail = false,
-            ConnectTimeout = 1000
-        };
-        options.EndPoints.Add("127.0.0.1", 6379);
-        return ConnectionMultiplexer.Connect(options);
-    }
-});
+// 3. 認証ストア & MCP エンジン登録
 builder.Services.AddSingleton<SharedLoginUserStore>();
 builder.Services.AddSingleton<ModernBff.Mcp.StranglerMcpEngine>();
+
+// 4. 内蔵 YARP リバースプロキシ (Embedded YARP) の登録
+// これにより、独立した YarpGateway プロセスを起動せず、ModernBff 単体でゲートウェイ機能を提供
+builder.Services.AddReverseProxy()
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
 // 4. レガシー MVC を内部呼び出しするための HttpClient 登録
 builder.Services.AddHttpClient("LegacyMvcClient", client =>
@@ -199,5 +204,8 @@ app.MapGet("/projects", context => ServeProtectedHtmlPageAsync(context, app, "pr
 app.MapGet("/workflows", context => ServeProtectedHtmlPageAsync(context, app, "workflows.html"));
 
 app.MapControllers();
+
+// 組み込み YARP リバースプロキシの有効化 (未処理のレガシーパスを LegacyMvc へ転送)
+app.MapReverseProxy();
 
 app.Run();

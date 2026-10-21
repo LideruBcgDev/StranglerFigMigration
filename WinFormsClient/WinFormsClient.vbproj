@@ -10,7 +10,9 @@
     <OptionStrict>On</OptionStrict>
     <OptionCompare>Binary</OptionCompare>
     <OptionInfer>On</OptionInfer>
-    <NoWarn>MSB3277</NoWarn>
+    <NoWarn>MSB3277;SYSLIB0011</NoWarn>
+    <!-- レガシー互換テスト用: BinaryFormatter の安全でないシリアライズを有効化 -->
+    <EnableUnsafeBinaryFormatterSerialization>true</EnableUnsafeBinaryFormatterSerialization>
   </PropertyGroup>
 
   <ItemGroup>

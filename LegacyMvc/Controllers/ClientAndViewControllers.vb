@@ -128,6 +128,9 @@ Namespace Controllers
         Public Function ExecuteCommandByName(Optional commandName As String = Nothing) As ActionResult
             Dim iParamJson As JToken = Nothing
             Dim bodyLoginUser As LoginUser = Nothing
+            Dim isBinaryFormatted As Boolean = False
+            Dim binaryPayloadBase64 As String = Nothing
+            Dim useJsonWithType As Boolean = False
 
             If String.Equals(Request.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase) Then
                 Dim body As String
@@ -140,11 +143,28 @@ Namespace Controllers
                     If String.IsNullOrWhiteSpace(commandName) Then
                         commandName = Convert.ToString(If(root("commandName"), root("CommandName")))
                     End If
-                    iParamJson = If(root("iParam"), root("IParam"))
-                    If iParamJson IsNot Nothing AndAlso iParamJson.Type = JTokenType.Object Then
-                        Dim luToken As JToken = If(iParamJson("loginUser"), iParamJson("LoginUser"))
-                        If luToken IsNot Nothing Then
-                            bodyLoginUser = luToken.ToObject(Of LoginUser)()
+
+                    isBinaryFormatted = Convert.ToBoolean(If(root("isBinaryFormatted"), root("IsBinaryFormatted")))
+                    binaryPayloadBase64 = Convert.ToString(If(root("payloadBase64"), root("PayloadBase64")))
+                    useJsonWithType = Convert.ToBoolean(If(root("useJsonWithType"), root("UseJsonWithType")))
+
+                    ' 1. BinaryFormatter over JSON (Base64) モードの場合: Base64 から IParam を直接復元 (Interface 型完全対応)
+                    If isBinaryFormatted AndAlso Not String.IsNullOrWhiteSpace(binaryPayloadBase64) Then
+                        Try
+                            Dim rawDeserialized = BinaryPayloadHelper.DeserializeFromBase64(binaryPayloadBase64)
+                            If TypeOf rawDeserialized Is IParamBase Then
+                                Dim directIParam = DirectCast(rawDeserialized, IParamBase)
+                                bodyLoginUser = directIParam.LoginUser
+                            End If
+                        Catch
+                        End Try
+                    Else
+                        iParamJson = If(root("iParam"), root("IParam"))
+                        If iParamJson IsNot Nothing AndAlso iParamJson.Type = JTokenType.Object Then
+                            Dim luToken As JToken = If(iParamJson("loginUser"), iParamJson("LoginUser"))
+                            If luToken IsNot Nothing Then
+                                bodyLoginUser = luToken.ToObject(Of LoginUser)()
+                            End If
                         End If
                     End If
                 End If
@@ -156,6 +176,20 @@ Namespace Controllers
 
             Dim resolvedEntry As CommandConfigEntry = Nothing
             Dim cmd As ICommand = CommandDispatcher.CreateCommand(commandName, iParamJson, resolvedEntry)
+
+            ' BinaryFormatter から復元された IParam があればプロパティを上書き
+            If isBinaryFormatted AndAlso Not String.IsNullOrWhiteSpace(binaryPayloadBase64) Then
+                Try
+                    Dim rawDeserialized = BinaryPayloadHelper.DeserializeFromBase64(binaryPayloadBase64)
+                    If rawDeserialized IsNot Nothing AndAlso rawDeserialized.GetType() = cmd.IParam.GetType() Then
+                        Dim customProp = rawDeserialized.GetType().GetProperty("CustomContext")
+                        If customProp IsNot Nothing Then
+                            customProp.SetValue(cmd.IParam, customProp.GetValue(rawDeserialized, Nothing), Nothing)
+                        End If
+                    End If
+                Catch
+                End Try
+            End If
 
             PopulateClientIParamAndSession(cmd.IParam, bodyLoginUser)
 
@@ -202,18 +236,35 @@ Namespace Controllers
                 }), "application/json")
             End Try
 
-            Dim responseJson As String = JsonConvert.SerializeObject(New With {
+            Dim responsePayloadBase64 As String = Nothing
+            If isBinaryFormatted Then
+                Try
+                    responsePayloadBase64 = BinaryPayloadHelper.SerializeToBase64(cmd.OParam)
+                Catch
+                End Try
+            End If
+
+            Dim responseObj = New With {
                 .controller = "LegacyMvc.Controllers.ClientController (VB.NET / RoutePrefix: Client)",
                 .commandName = resolvedEntry.Name,
                 .configDefinition = resolvedEntry.CommandTypeString,
                 .registrationSource = resolvedEntry.RegistrationSource,
                 .db = resolvedEntry.Db,
                 .responseType = cmd.ResponseType,
+                .isBinaryFormatted = isBinaryFormatted,
+                .payloadBase64 = responsePayloadBase64,
                 .iParamType = cmd.IParam.GetType().AssemblyQualifiedName,
                 .oParamType = cmd.OParam.GetType().AssemblyQualifiedName,
                 .iParam = cmd.IParam,
                 .oParam = cmd.OParam
-            })
+            }
+
+            Dim responseJson As String
+            If useJsonWithType Then
+                responseJson = BinaryPayloadHelper.SerializeToJsonWithType(responseObj)
+            Else
+                responseJson = JsonConvert.SerializeObject(responseObj)
+            End If
 
             Return Content(responseJson, "application/json")
         End Function

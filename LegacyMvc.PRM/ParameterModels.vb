@@ -46,8 +46,29 @@ Namespace Global.LegacyMvc.PRM
     End Class
 
     ''' <summary>
+    ''' 【BinaryFormatter 時代によく見られた Interface 型プロパティの例】
+    ''' 通常の JSON シリアライザーではインターフェース型の具象クラスをインスタンス化できず例外となりますが、
+    ''' 1) BinaryFormatter over JSON (Base64) 方式
+    ''' 2) Newtonsoft.Json TypeNameHandling.Auto ($type 付与) 方式
+    ''' のいずれかで元の具象クラス (DefaultCustomContext) を完全復元可能です。
+    ''' </summary>
+    Public Interface ICommandCustomContext
+        Property ContextName As String
+        Property ExtensionData As String
+    End Interface
+
+    <Serializable>
+    Public Class DefaultCustomContext
+        Implements ICommandCustomContext
+
+        Public Property ContextName As String = "DefaultLegacyContext" Implements ICommandCustomContext.ContextName
+        Public Property ExtensionData As String = "LegacyBinaryFormatterPayload" Implements ICommandCustomContext.ExtensionData
+    End Class
+
+    ''' <summary>
     ''' CommandLoginUser は Common.APP.LoginUser を継承（既存コードとの完全互換用）
     ''' </summary>
+    <Serializable>
     Public Class CommandLoginUser
         Inherits LoginUser
     End Class
@@ -56,18 +77,21 @@ Namespace Global.LegacyMvc.PRM
     ''' 【入力パラメータ基底クラス (IParamBase)】
     ''' Session 情報、DB番号、および Common.APP.LoginUser 情報を保持します。
     ''' </summary>
+    <Serializable>
     Public Class IParamBase
         Public Property SessionId As String = String.Empty
         Public Property SessionData As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
         Public Property LoginUser As New LoginUser()
         Public Property CommandId As String = String.Empty
         Public Property DbNumber As Integer = 1
+        Public Property CustomContext As ICommandCustomContext = New DefaultCustomContext()
     End Class
 
     ''' <summary>
     ''' 【出力パラメータ基底クラス (OParamBase)】
     ''' WinFormsClient 側で DirectCast 可能な出力パラメータの基底クラスです。
     ''' </summary>
+    <Serializable>
     Public Class OParamBase
         Public Property IsSuccess As Boolean = False
         Public Property ValidationPassed As Boolean = False
@@ -81,6 +105,7 @@ Namespace Global.LegacyMvc.PRM
         Public Property PermissionCheckResult As String = String.Empty
         Public Property ErrorMessage As String = String.Empty
         Public Property ExecutedAtUtc As DateTime = DateTime.UtcNow
+        Public Property CustomContext As ICommandCustomContext = New DefaultCustomContext()
     End Class
 
     ' ====================================================================================
@@ -96,6 +121,7 @@ Namespace Global.LegacyMvc.PRM
         Public Property ApprovedAtUtc As DateTime?
     End Class
 
+    <Serializable>
     Public Class DrawingRecord
         Public Property DrawingNo As String = String.Empty
         Public Property BomNo As String = String.Empty
@@ -508,12 +534,14 @@ Namespace Global.LegacyMvc.PRM
     ''' <summary>
     ''' 3. "DRW.SCH" (図面検索) 用 IParam / OParam
     ''' </summary>
+    <Serializable>
     Public Class DrawingSearchIParam
         Inherits IParamBase
 
         Public Property Keyword As String = String.Empty
     End Class
 
+    <Serializable>
     Public Class DrawingSearchOParam
         Inherits OParamBase
 

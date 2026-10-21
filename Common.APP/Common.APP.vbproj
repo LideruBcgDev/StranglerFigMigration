@@ -9,6 +9,7 @@
     <OptionStrict>On</OptionStrict>
     <OptionCompare>Binary</OptionCompare>
     <OptionInfer>On</OptionInfer>
+    <NoWarn>SYSLIB0011</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

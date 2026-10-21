@@ -9,6 +9,7 @@ Namespace Global.Common.APP
     ''' WinFormsClient / LegacyMvc / LegacyMvc.PRM / LegacyMvc.MDL / ModernBff / ModernBff.MDL の
     ''' どこからでも共通で参照・利用できるログインユーザクラスです。
     ''' </summary>
+    <Serializable>
     Public Class LoginUser
         Public Const CookieName As String = "StranglerAuthToken"
         Public Const HeaderName As String = "X-Strangler-AuthToken"

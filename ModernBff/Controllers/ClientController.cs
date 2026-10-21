@@ -16,6 +16,9 @@ public class ClientCommandExecuteRequestDto
 {
     public string CommandName { get; set; } = CommandNames.ItmApp;
     public JsonElement? IParam { get; set; }
+    public string? PayloadBase64 { get; set; }
+    public bool IsBinaryFormatted { get; set; }
+    public bool UseJsonWithType { get; set; }
 }
 
 public class ClientItemSaveRequestDto
@@ -589,6 +592,16 @@ public class ClientController : ControllerBase
             await syncDb.SaveChangesAsync();
         }
 
+        string? responsePayloadBase64 = null;
+        if (body?.IsBinaryFormatted == true)
+        {
+            try
+            {
+                responsePayloadBase64 = BinaryPayloadHelper.SerializeToBase64(cmd.OParam);
+            }
+            catch { }
+        }
+
         return Ok(new
         {
             Controller = "ModernBff.Controllers.ClientController (RoutePrefix: Client)",
@@ -597,6 +610,8 @@ public class ClientController : ControllerBase
             CommandConfig = $"<command name=\"{entry?.Name}\" command=\"{entry?.CommandTypeString}\" db=\"{entry?.Db}\">",
             DbSlot = entry?.Db ?? 1,
             ResponseType = cmd.ResponseType,
+            IsBinaryFormatted = body?.IsBinaryFormatted ?? false,
+            PayloadBase64 = responsePayloadBase64,
             LoginUserLookupSource = loginSource,
             iParamType = cmd.IParam.GetType().FullName,
             oParamType = cmd.OParam.GetType().FullName,

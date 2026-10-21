@@ -24,6 +24,16 @@ Namespace Global.Common.APP
 
         <JsonProperty("iParam")>
         Public Property IParam As Object
+
+        ''' <summary>BinaryFormatter でシリアライズされた byte[] の Base64 文字列 (Interface型プロパティ完全保持用)</summary>
+        <JsonProperty("payloadBase64")>
+        Public Property PayloadBase64 As String = String.Empty
+
+        <JsonProperty("isBinaryFormatted")>
+        Public Property IsBinaryFormatted As Boolean = False
+
+        <JsonProperty("useJsonWithType")>
+        Public Property UseJsonWithType As Boolean = False
     End Class
 
     ''' <summary>
@@ -165,11 +175,12 @@ Namespace Global.Common.APP
         Public Async Function ExecuteCommandAsync(Of TIParam As {Class, New}, TOParam As Class)(
             spec As CommandSpec(Of TIParam, TOParam),
             Optional configureIParam As Action(Of TIParam) = Nothing,
-            Optional endpointPath As String = "Client/execute") As Task(Of TOParam)
+            Optional endpointPath As String = "Client/execute",
+            Optional useBinaryFormatter As Boolean = False) As Task(Of TOParam)
 
             If spec Is Nothing Then Throw New ArgumentNullException(NameOf(spec))
             Dim iParam As TIParam = spec.CreateIParam(configureIParam)
-            Dim rawOParam As Object = Await ExecuteCommandAsync(spec.Name, CObj(iParam), endpointPath)
+            Dim rawOParam As Object = Await ExecuteCommandAsync(spec.Name, CObj(iParam), endpointPath, useBinaryFormatter)
             Return DirectCast(rawOParam, TOParam)
         End Function
 
@@ -180,11 +191,12 @@ Namespace Global.Common.APP
         Public Async Function ExecuteCommandAsync(Of TIParam As {Class, New}, TOParam As Class)(
             spec As CommandSpec(Of TIParam, TOParam),
             iParam As TIParam,
-            Optional endpointPath As String = "Client/execute") As Task(Of TOParam)
+            Optional endpointPath As String = "Client/execute",
+            Optional useBinaryFormatter As Boolean = False) As Task(Of TOParam)
 
             If spec Is Nothing Then Throw New ArgumentNullException(NameOf(spec))
             Dim effectiveIParam As TIParam = If(iParam, spec.CreateIParam())
-            Dim rawOParam As Object = Await ExecuteCommandAsync(spec.Name, CObj(effectiveIParam), endpointPath)
+            Dim rawOParam As Object = Await ExecuteCommandAsync(spec.Name, CObj(effectiveIParam), endpointPath, useBinaryFormatter)
             Return DirectCast(rawOParam, TOParam)
         End Function
 
@@ -192,12 +204,13 @@ Namespace Global.Common.APP
         ''' コマンド名定数 (例: CommandNames.ItmApp, CommandNames.ItmSch) と IParam を指定して
         ''' ClientController (/Client/execute) または ViewController (/View/execute) を呼び出し、
         ''' 返却された OParam インスタンスを LegacyMvc.PRM / ModernBff.PRM の具体型として復元して返します。
-        ''' 送信前に CommandParamRegistry.ValidateIParamType で IParam の型不一致も自動チェックします。
+        ''' useBinaryFormatter:=True の場合、byte[] を Base64 文字列化して JSON に乗せ、Interface 型プロパティを完全保持します。
         ''' </summary>
         Public Async Function ExecuteCommandAsync(
             commandName As String,
             iParam As Object,
-            Optional endpointPath As String = "Client/execute") As Task(Of Object)
+            Optional endpointPath As String = "Client/execute",
+            Optional useBinaryFormatter As Boolean = False) As Task(Of Object)
 
             ' コマンド名に対して IParam が未指定の場合は CommandParamRegistry から自動生成
             If iParam Is Nothing AndAlso CommandParamRegistry.GetIParamType(commandName) IsNot Nothing Then
@@ -221,15 +234,22 @@ Namespace Global.Common.APP
             Dim reqEnvelope As New CommandDispatchRequest With {
                 .CommandName = commandName,
                 .IParamType = If(iParam IsNot Nothing, iParam.GetType().AssemblyQualifiedName, String.Empty),
-                .IParam = iParam
+                .IParam = iParam,
+                .IsBinaryFormatted = useBinaryFormatter
             }
+
+            ' BinaryFormatter 互換モードの場合、byte[] を Base64 化して格納
+            If useBinaryFormatter AndAlso iParam IsNot Nothing Then
+                Try
+                    reqEnvelope.PayloadBase64 = BinaryPayloadHelper.SerializeToBase64(iParam)
+                Catch
+                End Try
+            End If
 
             Dim response As HttpResponseMessage = Await PostJsonAsync(endpointPath, reqEnvelope)
             Dim rawJson As String = Await response.Content.ReadAsStringAsync()
 
             ' 【Web 画面 (.aspx) 起動リダイレクト判定】
-            ' ヘッダー X-Strangler-Redirect-Url または JSON 内の isRedirect / redirectUrl を検知した場合、
-            ' 独自の RedirectException を発生させ、クライアント側 (WinFormsClient) で Process.Start によるブラウザ起動を行う
             Dim redirectHeaderUrl As String = Nothing
             If response.Headers.Contains("X-Strangler-Redirect-Url") Then
                 redirectHeaderUrl = response.Headers.GetValues("X-Strangler-Redirect-Url").FirstOrDefault()
@@ -254,6 +274,17 @@ Namespace Global.Common.APP
                     Throw New RedirectException(redirectUrl, reqCode, aspxPage, commandName)
                 End If
 
+                ' BinaryFormatter over JSON の場合、サーバーから返された Base64 から OParam を直接復元
+                Dim isBinaryResToken As JToken = If(root("isBinaryFormatted"), root("IsBinaryFormatted"))
+                Dim payloadBase64Token As JToken = If(root("payloadBase64"), root("PayloadBase64"))
+                If (useBinaryFormatter OrElse (isBinaryResToken IsNot Nothing AndAlso Convert.ToBoolean(isBinaryResToken))) AndAlso
+                   payloadBase64Token IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(payloadBase64Token.ToString()) Then
+                    Dim binaryOParam = BinaryPayloadHelper.DeserializeFromBase64(payloadBase64Token.ToString())
+                    If binaryOParam IsNot Nothing Then
+                        Return binaryOParam
+                    End If
+                End If
+
                 Dim oParamTypeToken As JToken = If(root("oParamType"), root("OParamType"))
                 Dim oParamToken As JToken = If(root("oParam"), root("OParam"))
 
@@ -261,7 +292,7 @@ Namespace Global.Common.APP
                     Throw New InvalidOperationException($"コマンド '{commandName}' の応答に OParam が含まれていません。Response: {rawJson}")
                 End If
 
-                ' 1. まず CommandParamRegistry に登録された OParam 型を優先解決 (コマンド名から OParam 型が一意に決まるため確実)
+                ' 1. まず CommandParamRegistry に登録された OParam 型を優先解決
                 Dim targetType As Type = CommandParamRegistry.GetOParamType(commandName)
 
                 ' 2. 未登録の場合はレスポンス内の oParamType 文字列から解決

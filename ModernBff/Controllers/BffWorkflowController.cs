@@ -154,7 +154,7 @@ public class BffWorkflowController : ControllerBase
     }
 
     /// <summary>
-    /// GET or POST /api/bff/workflow/complete?wfId=WF-9001&simulateDrawingError=false
+    /// GET or POST /api/bff/workflow/complete?wfId=WF-9001&amp;simulateDrawingError=false
     /// ワークフローStep3：【最終承認】（VERIFIED -> APPROVED）
     /// 案件 (PROJECT) の承認をした場合は、関連づいている品目 (ITM_TBL) と図面 (DRW_TBL) も同一トランザクションで一括承認されます。
     /// </summary>

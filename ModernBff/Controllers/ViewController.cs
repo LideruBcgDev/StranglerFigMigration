@@ -456,7 +456,7 @@ public class ViewController : ControllerBase
     }
 
     /// <summary>
-    /// POST /View/workflow/approve?wfId=WF-9001&simulateDrawingError=false
+    /// POST /View/workflow/approve?wfId=WF-9001&amp;simulateDrawingError=false
     /// Web ブラウザからのワークフロー最終承認 (Step 3: 承認 - 案件承認時は関連品目・図面も一括承認)
     /// </summary>
     [HttpPost("workflow/approve")]

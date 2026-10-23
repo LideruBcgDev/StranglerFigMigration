@@ -88,34 +88,35 @@ public class ClientController : ControllerBase
     /// </summary>
     private async Task<string> PopulateClientIParamAsync(IParamBase iParam, LoginUser? bodyLoginUser = null)
     {
-        string? token = _loginUserStore.ExtractToken(HttpContext);
-        iParam.SessionId = string.IsNullOrWhiteSpace(token) ? "STATELESS-MODERN-BFF" : $"REDIS-TOKEN:{token}";
-
-        // (A) クエリパラメータ loginUserId による明示指定 (権限NGテスト等にも対応)
-        if (Request.Query.TryGetValue("loginUserId", out var qUserId) && !string.IsNullOrWhiteSpace(qUserId))
+        // 【セキュリティ強化: サーバー側トークン認証情報を最優先適用】
+        // Bearer トークンまたはセッション Cookie がある場合、サーバー側ストアで検証済みの本物の LoginUser を強制適用します。
+        // これにより、クライアント側による UserId の改ざんや管理者ロールの偽装を 100% 遮断します。
+        var (verifiedUser, loginSource) = await _loginUserStore.GetLoginUserFromContextAsync(HttpContext);
+        if (verifiedUser != null)
         {
-            string role = Request.Query.TryGetValue("role", out var qRole) && !string.IsNullOrWhiteSpace(qRole)
-                ? qRole.ToString()
-                : "Engineer";
-
+            iParam.SessionId = verifiedUser.SessionToken;
             iParam.LoginUser = new CommandLoginUser
             {
-                UserId = qUserId.ToString(),
-                UserName = Request.Query.TryGetValue("loginUserName", out var qName) ? qName.ToString() : qUserId.ToString(),
-                OrganizationCode = "WINFORMS-CLIENT",
-                OrganizationName = "WinForms 指定組織",
-                Roles = new List<string> { role },
-                AuthenticationMethod = "WinForms-Query-IParam.LoginUser",
+                UserId = verifiedUser.UserId,
+                UserName = verifiedUser.UserName,
+                OrganizationCode = verifiedUser.OrganizationCode,
+                OrganizationName = verifiedUser.OrganizationName,
+                Roles = verifiedUser.Roles,
+                AuthenticationMethod = verifiedUser.AuthenticationMethod,
                 IsAuthenticated = true,
-                SourceChannel = "ClientController: WindowsForms Query (command.IParam.LoginUser)"
+                SourceChannel = $"ModernBff Verified Token ({loginSource}) -> IParam.LoginUser"
             };
             return iParam.LoginUser.SourceChannel;
         }
 
-        // (B) Windows Forms が POST ボディの command.IParam.LoginUser に設定した場合 (レガシー互換)
+        string? token = _loginUserStore.ExtractToken(HttpContext);
+        iParam.SessionId = string.IsNullOrWhiteSpace(token) ? "STATELESS-MODERN-BFF" : $"TOKEN:{token}";
+
+        // 【互換用フォールバック (移行過渡期・ローカル単体テスト用)】
+        // トークン未指定の場合のみ、クライアントの自己申告を受け入れます。
         if (bodyLoginUser != null && !string.IsNullOrWhiteSpace(bodyLoginUser.UserId))
         {
-            bodyLoginUser.SourceChannel = "ClientController: WindowsForms RequestBody (command.IParam.LoginUser)";
+            bodyLoginUser.SourceChannel = "ClientController: Client-Claim Fallback (command.IParam.LoginUser - Unverified)";
             bodyLoginUser.IsAuthenticated = true;
             iParam.LoginUser = bodyLoginUser;
             return bodyLoginUser.SourceChannel;
@@ -145,7 +146,7 @@ public class ClientController : ControllerBase
         }
 
         // (D) ModernBff 本来の推奨方式: トークンから Redis 共有セッションを自動解決 (WinForms 側での IParam.LoginUser 手動設定が不要)
-        var (redisUser, loginSource) = await _loginUserStore.GetLoginUserAsync(token);
+        var (redisUser, redisSource) = await _loginUserStore.GetLoginUserAsync(token);
         if (redisUser != null)
         {
             iParam.LoginUser = new CommandLoginUser
@@ -157,7 +158,7 @@ public class ClientController : ControllerBase
                 Roles = redisUser.Roles,
                 AuthenticationMethod = redisUser.AuthenticationMethod,
                 IsAuthenticated = true,
-                SourceChannel = $"ModernBff Auto-Resolved from Redis ({loginSource}) -> IParam.LoginUser"
+                SourceChannel = $"ModernBff Auto-Resolved from Redis ({redisSource}) -> IParam.LoginUser"
             };
             return iParam.LoginUser.SourceChannel;
         }

@@ -139,6 +139,49 @@ Namespace Global.Common.APP
         End Sub
 
         ''' <summary>
+        ''' 【セキュア認証推奨】ユーザーID・パスワードで /oauth/token 認証を行い、改ざん不可能な Bearer トークンを取得・保持します。
+        ''' 以降のすべての通信 (コマンド実行 / API / MCP) に Authorization: Bearer <token> が自動付与され、
+        ''' クライアントからの LoginUser 自己申告 (改ざん・なりすましリスク) を完全に排除できます。
+        ''' </summary>
+        Public Async Function AuthenticateUserAsync(userId As String, password As String) As Task(Of Boolean)
+            Dim tokenPayload As New Dictionary(Of String, String) From {
+                {"grant_type", "password"},
+                {"user_id", userId},
+                {"password", password}
+            }
+
+            Dim response As HttpResponseMessage = Await PostJsonAsync("oauth/token", tokenPayload)
+            If Not response.IsSuccessStatusCode Then
+                Return False
+            End If
+
+            Dim json As String = Await response.Content.ReadAsStringAsync()
+            Dim root As JObject = JObject.Parse(json)
+            Dim token As String = Convert.ToString(root("access_token"))
+
+            If Not String.IsNullOrWhiteSpace(token) Then
+                SetBearerAccessToken(token)
+
+                ' サーバーから返却された検証済みユーザー情報を保持
+                Dim authenticatedUser As New LoginUser With {
+                    .UserId = Convert.ToString(root("user_id")),
+                    .UserName = Convert.ToString(root("user_name")),
+                    .OrganizationCode = Convert.ToString(root("organization_code")),
+                    .OrganizationName = Convert.ToString(root("organization_name")),
+                    .Roles = If(root("roles")?.ToObject(Of List(Of String))(), New List(Of String)()),
+                    .SessionToken = token,
+                    .AuthenticationMethod = "OAuth2 Bearer Token (Secure)",
+                    .IsAuthenticated = True,
+                    .SourceChannel = "OAuth2 Bearer Token (/oauth/token)"
+                }
+                SetAuthenticatedUser(authenticatedUser)
+                Return True
+            End If
+
+            Return False
+        End Function
+
+        ''' <summary>
         ''' REST API (/api/.*) 呼び出し用の OAuth 2.0 Bearer access_token を設定します。
         ''' </summary>
         Public Sub SetBearerAccessToken(bearerToken As String)

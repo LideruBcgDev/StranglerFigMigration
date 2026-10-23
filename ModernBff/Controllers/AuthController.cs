@@ -205,7 +205,7 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/bff/auth/sso/redirect?returnUrl=...&providerId=...&user=yamada
+    /// GET /api/bff/auth/sso/redirect?returnUrl=...&amp;providerId=...&amp;user=yamada
     /// autoRedirectToIdpOnLogin = true の場合や、ブラウザ直接リダイレクトで SSO ログインを実行し、
     /// 認証 Cookie と Redis loginuser を発行した上で returnUrl (例: /web/view/drawings?drw_no='drw004') へ直接リダイレクトします。
     /// </summary>
@@ -300,7 +300,7 @@ if (window.chrome && window.chrome.webview) {{
     }
 
     /// <summary>
-    /// GET /api/bff/auth/oidc/callback?code=xxx&user=yamada&state=/web/view/drawings?drw_no='drw004'
+    /// GET /api/bff/auth/oidc/callback?code=xxx&amp;user=yamada&amp;state=/web/view/drawings?drw_no='drw004'
     /// OIDC IdP からの認可コードコールバックを受け取るエンドポイント
     /// </summary>
     [HttpGet("oidc/callback")]

@@ -1,8 +1,7 @@
-using System.Net;
 using System.Text.Json;
-using Microsoft.AspNetCore.Mvc;
 using ModernBff.Data;
 using ModernBff.MDL.Data;
+using ModernBff.Middleware;
 using ModernBff.Services;
 using Yarp.ReverseProxy.Transforms;
 
@@ -12,6 +11,50 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService();
 
 builder.Services.AddControllers();
+
+// Swagger / OpenAPI 設定 (BFF REST API, MCP サーバー, OAuth2, Client コントローラー対応)
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+    {
+        Title = "Strangler Fig ModernBff & BFF REST API",
+        Version = "v1",
+        Description = "モダンBFF (BFF REST API, MCP Server, OAuth 2.0, Client Dispatcher) の API 仕様書"
+    });
+
+    c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Description = "OAuth 2.0 Bearer トークン認証。POST /oauth/token で取得した access_token を入力してください。"
+    });
+
+    c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        c.IncludeXmlComments(xmlPath);
+    }
+});
 
 // 0. EF Core DbContext の登録 (SqlServer / InMemory 等)
 builder.Services.AddDbContext<StranglerDbContext>(options =>
@@ -23,10 +66,8 @@ builder.Services.AddDbContext<StranglerDbContext>(options =>
         out _);
 });
 
-// 1. キャッシュのセットアップ (インメモリ分散キャッシュ)
+// 1. キャッシュ & セッションのセットアップ (インメモリ)
 builder.Services.AddDistributedMemoryCache();
-
-// 2. セッションの有効化 (インメモリ)
 builder.Services.AddSession(options =>
 {
     options.Cookie.Name = ".StranglerFig.Session";
@@ -35,12 +76,13 @@ builder.Services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 
-// 3. 認証ストア & MCP エンジン登録
+// 2. 認証ストア & モダン側 MCP 実行エンジン登録
 builder.Services.AddSingleton<SharedLoginUserStore>();
 builder.Services.AddSingleton<ModernBff.Mcp.StranglerMcpEngine>();
 
-// 4. 内蔵 YARP リバースプロキシ (Embedded YARP)
-// 認証済みリクエストを LegacyMvc (:5001) へ転送する際、ログインユーザー情報をヘッダー注入
+// 3. 内蔵 YARP リバースプロキシ (Embedded YARP)
+// 自前 API (MCP / Auth / Client等) 以外のリクエスト (レガシー画面 / レガシー REST API 等) を LegacyMvc (:5001) へ転送
+// その際、認証済みユーザー情報を HTTP ヘッダーとして注入
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
     .AddTransforms(transformBuilderContext =>
@@ -65,89 +107,29 @@ builder.Services.AddReverseProxy()
         });
     });
 
-// 5. レガシー MVC 内部呼び出し用 HttpClient
-builder.Services.AddHttpClient("LegacyMvcClient", client =>
-{
-    var legacyBaseUrl = builder.Configuration["LegacyMvc:BaseUrl"] ?? "http://localhost:5001/";
-    client.BaseAddress = new Uri(legacyBaseUrl);
-    client.Timeout = TimeSpan.FromSeconds(5);
-});
-
 var app = builder.Build();
+
+app.UseSwagger();
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "ModernBff API v1");
+    c.RoutePrefix = "swagger";
+});
 
 app.UseStaticFiles();
 app.UseRouting();
 app.UseSession();
 app.UseAuthorization();
 
-// ------------------------------------------------------------------------------------------------
-// 認証ミドルウェア (未ログインならログイン要求 / 認証済みのみレガシープロキシ / REST API・MCPガード)
-// ------------------------------------------------------------------------------------------------
-app.Use(async (context, next) =>
-{
-    var path = context.Request.Path.Value ?? string.Empty;
+// 4. モダン認証ガードミドルウェア (別ファイル外出し: ModernAuthGuardMiddleware)
+// ・未ログインの画面アクセス -> /login へリダイレクト
+// ・MCP サーバー (/api/bff/mcp/*) および レガシー REST API (/api/*) -> 未認証時は 401
+app.UseModernAuthGuard();
 
-    // 認証不要なホワイトリストパス
-    if (path.Equals("/login", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/api/bff/auth/", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/oauth/", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/Client/", StringComparison.OrdinalIgnoreCase) || // WinForms コマンドディスパッチ
-        path.EndsWith(".css", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith(".js", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith(".ico", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase))
-    {
-        await next();
-        return;
-    }
-
-    var store = context.RequestServices.GetRequiredService<SharedLoginUserStore>();
-    var (loginUser, _) = await store.GetLoginUserFromContextAsync(context);
-
-    // 1. REST API (/api/*) および MCP (/api/bff/mcp/*) の認証ガード
-    if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
-    {
-        if (loginUser == null)
-        {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            context.Response.ContentType = "application/json; charset=utf-8";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new
-            {
-                error = "Unauthorized",
-                statusCode = 401,
-                message = "認証が必要です。POST /oauth/token (grant_type=password) で Bearer トークンを取得するか、ブラウザで /login からログインしてください。"
-            }));
-            return;
-        }
-
-        await next();
-        return;
-    }
-
-    // 2. ブラウザ画面・レガシーViewアクセス (例: /LegacyPortal.aspx, /, /legacy-api/* 等) の未ログインガード
-    if (loginUser == null)
-    {
-        string returnUrl = context.Request.Path + context.Request.QueryString.Value;
-        context.Response.Redirect($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}");
-        return;
-    }
-
-    // 認証済みユーザーは後続コントローラーまたは YARP プロキシ (LegacyMvc) へ進む
-    await next();
-});
-
-// GET /login: モダン側 Web ログイン画面を返却
-app.MapGet("/login", async context =>
-{
-    context.Response.ContentType = "text/html; charset=utf-8";
-    await context.Response.SendFileAsync(Path.Combine(app.Environment.WebRootPath, "login.html"));
-});
-
-// コントローラー (OAuthController, RestApiController, ClientController, McpController 等)
+// 5. コントローラー (OAuthController, AuthController, McpController, LoginController 等)
 app.MapControllers();
 
-// 組み込み YARP リバースプロキシ (認証済みリクエストを LegacyMvc :5001 へ転送)
+// 6. 組み込み YARP リバースプロキシ (認証済みリクエストを LegacyMvc :5001 へ透過転送)
 app.MapReverseProxy();
 
 app.Run();

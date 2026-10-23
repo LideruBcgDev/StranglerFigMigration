@@ -46,17 +46,17 @@ public class JsonRpcResponse
 public class StranglerMcpEngine
 {
     private readonly SharedLoginUserStore _loginUserStore;
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IHttpClientFactory? _httpClientFactory;
     private readonly IServiceProvider _serviceProvider;
     private readonly IConfiguration _configuration;
     private readonly ILogger<StranglerMcpEngine> _logger;
 
     public StranglerMcpEngine(
         SharedLoginUserStore loginUserStore,
-        IHttpClientFactory httpClientFactory,
         IServiceProvider serviceProvider,
         IConfiguration configuration,
-        ILogger<StranglerMcpEngine> logger)
+        ILogger<StranglerMcpEngine> logger,
+        IHttpClientFactory? httpClientFactory = null)
     {
         _loginUserStore = loginUserStore;
         _httpClientFactory = httpClientFactory;
@@ -300,26 +300,39 @@ public class StranglerMcpEngine
                 if (string.Equals(source, "legacy", StringComparison.OrdinalIgnoreCase))
                 {
                     object legacyResponse;
-                    try
+                    if (_httpClientFactory != null)
                     {
-                        var client = _httpClientFactory.CreateClient("LegacyMvcClient");
-                        using var req = new HttpRequestMessage(HttpMethod.Get, $"LegacyData/GetCustomer?id={customerId}");
-                        if (!string.IsNullOrWhiteSpace(token))
+                        try
                         {
-                            req.Headers.TryAddWithoutValidation(SharedLoginUserStore.HeaderName, token);
+                            var client = _httpClientFactory.CreateClient("LegacyMvcClient");
+                            using var req = new HttpRequestMessage(HttpMethod.Get, $"LegacyData/GetCustomer?id={customerId}");
+                            if (!string.IsNullOrWhiteSpace(token))
+                            {
+                                req.Headers.TryAddWithoutValidation(SharedLoginUserStore.HeaderName, token);
+                            }
+                            var resp = await client.SendAsync(req);
+                            var body = await resp.Content.ReadAsStringAsync();
+                            legacyResponse = JsonDocument.Parse(body).RootElement.Clone();
                         }
-                        var resp = await client.SendAsync(req);
-                        var body = await resp.Content.ReadAsStringAsync();
-                        legacyResponse = JsonDocument.Parse(body).RootElement.Clone();
+                        catch (Exception ex)
+                        {
+                            legacyResponse = new
+                            {
+                                Fallback = true,
+                                CustomerId = customerId,
+                                CustomerName = $"株式会社レガシー商事 (ID: {customerId}) [MCP Legacy Fallback]",
+                                Note = $"LegacyMvc 未起動のためフォールバック応答 ({ex.Message})"
+                            };
+                        }
                     }
-                    catch (Exception ex)
+                    else
                     {
                         legacyResponse = new
                         {
                             Fallback = true,
                             CustomerId = customerId,
-                            CustomerName = $"株式会社レガシー商事 (ID: {customerId}) [MCP Legacy Fallback]",
-                            Note = $"LegacyMvc 未起動のためフォールバック応答 ({ex.Message})"
+                            CustomerName = $"株式会社レガシー商事 (ID: {customerId}) [MCP Legacy Simulated]",
+                            Note = "YARP リバースプロキシ直接プロキシ構成のため HttpClient は非接続です。"
                         };
                     }
 

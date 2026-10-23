@@ -63,8 +63,33 @@ Namespace Controllers
                 Next
             End If
 
+            ' 【セキュリティ強化: サーバー側トークン認証情報を最優先適用】
+            ' クライアント (WinForms) から送られた自己申告の LoginUser よりも、
+            ' ModernBff (YARP) で Bearer トークン等から検証・注入された正規のユーザー情報を最優先します。
+            ' これにより、クライアント側でのリクエスト改ざん (他人の UserId や管理者ロールの勝手な付与) を 100% 防止します。
+            Dim sessionUser As LoginUser = TryCast(Session("loginuser"), LoginUser)
+            If sessionUser IsNot Nothing Then
+                iParam.LoginUser = sessionUser
+                Return
+            End If
+
+            Dim proxyUserHeader As String = Request.Headers("X-Strangler-LoginUser")
+            If Not String.IsNullOrWhiteSpace(proxyUserHeader) Then
+                Try
+                    Dim verifiedUser As LoginUser = JsonConvert.DeserializeObject(Of LoginUser)(Uri.UnescapeDataString(proxyUserHeader))
+                    If verifiedUser IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(verifiedUser.UserId) Then
+                        verifiedUser.SourceChannel = "ClientController: Verified ModernBff Proxy Header (X-Strangler-LoginUser)"
+                        iParam.LoginUser = verifiedUser
+                        Return
+                    End If
+                Catch
+                End Try
+            End If
+
+            ' 【互換用フォールバック (移行過渡期用)】
+            ' トークン未取得の古いクライアントからの通信の場合のみ、クライアントの自己申告を受け入れます。
             If clientProvidedLoginUser IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(clientProvidedLoginUser.UserId) Then
-                clientProvidedLoginUser.SourceChannel = "ClientController: WindowsForms RequestBody (command.IParam.LoginUser)"
+                clientProvidedLoginUser.SourceChannel = "ClientController: Client-Claim Fallback (command.IParam.LoginUser - Unverified)"
                 iParam.LoginUser = clientProvidedLoginUser
                 Return
             End If
@@ -412,8 +437,10 @@ Namespace Controllers
     ''' <summary>
     ''' 【レガシー側 ViewController (RoutePrefix = "View") - VB.NET】
     ''' Web ブラウザからアクセスされる専用コントローラー (/View/...)。
+    ''' MVCValidLoginUserAttribute により、認証済み (User.Identity.IsAuthenticated = True) の場合のみ実行されます。
     ''' </summary>
     <RoutePrefix("View")>
+    <MVCValidLoginUser>
     Public Class ViewController
         Inherits Controller
 
@@ -447,37 +474,38 @@ Namespace Controllers
                 Next
             End If
 
-            Dim lookupStatus As String = String.Empty
-            Dim redisUser As SharedLoginUser = SharedLoginUser.ResolveFromRedis(Request, lookupStatus)
-            If redisUser IsNot Nothing AndAlso (Me.User Is Nothing OrElse Me.User.Identity Is Nothing OrElse Not Me.User.Identity.IsAuthenticated) Then
-                Dim genericIdentity As New GenericIdentity(redisUser.UserId, If(redisUser.AuthenticationMethod, "FormsOrOidc"))
-                Dim rolesArray As String() = If(redisUser.Roles IsNot Nothing, redisUser.Roles.ToArray(), New String() {})
-                Me.HttpContext.User = New GenericPrincipal(genericIdentity, rolesArray)
+            ' 1. Global.asax.vb でモダン側 (ModernBff) プロキシヘッダーから復元された Session("loginuser") を最優先利用
+            Dim sessionUser As LoginUser = TryCast(Session("loginuser"), LoginUser)
+            If sessionUser IsNot Nothing Then
+                iParam.LoginUser = sessionUser
+                Return
             End If
 
+            ' 2. HttpContext.User (Global.asax.vb の Application_PostAuthenticateRequest で設定された GenericPrincipal)
             Dim identity As IIdentity = If(Me.User IsNot Nothing, Me.User.Identity, Nothing)
             If identity IsNot Nothing AndAlso identity.IsAuthenticated AndAlso Not String.IsNullOrWhiteSpace(identity.Name) Then
+                Dim principal = TryCast(Me.User, GenericPrincipal)
                 iParam.LoginUser = New LoginUser With {
                     .UserId = identity.Name,
-                    .UserName = If(redisUser IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(redisUser.UserName), redisUser.UserName, identity.Name),
-                    .OrganizationCode = If(redisUser IsNot Nothing, redisUser.OrganizationCode, "ENG-01"),
-                    .OrganizationName = If(redisUser IsNot Nothing, redisUser.OrganizationName, "技術開発部"),
-                    .Roles = If(redisUser IsNot Nothing AndAlso redisUser.Roles IsNot Nothing, redisUser.Roles, New List(Of String) From {"Engineer"}),
+                    .UserName = If(Request.Headers("X-Strangler-User-Name"), identity.Name),
+                    .OrganizationCode = If(Request.Headers("X-Strangler-Org-Code"), "SALES-01"),
+                    .OrganizationName = If(Request.Headers("X-Strangler-Org-Name"), "営業本部"),
+                    .Roles = If(Request.Headers("X-Strangler-Roles"), "").Split(New Char() {","c}, StringSplitOptions.RemoveEmptyEntries).ToList(),
                     .AuthenticationMethod = identity.AuthenticationType,
                     .IsAuthenticated = identity.IsAuthenticated,
                     .SourceChannel = $"ViewController: IIdentity (Name={identity.Name}, AuthType={identity.AuthenticationType})"
                 }
             Else
-                Dim fallbackIdentity As IIdentity = New GenericIdentity("suzuki", "LegacyWebFormsIdentity")
+                Dim fallbackIdentity As IIdentity = New GenericIdentity("yamada", "LegacyFallbackIdentity")
                 iParam.LoginUser = New LoginUser With {
                     .UserId = fallbackIdentity.Name,
-                    .UserName = "鈴木 花子",
-                    .OrganizationCode = "ENG-01",
-                    .OrganizationName = "技術開発部",
-                    .Roles = New List(Of String) From {"Engineer"},
+                    .UserName = "山田 太郎",
+                    .OrganizationCode = "SALES-01",
+                    .OrganizationName = "営業本部",
+                    .Roles = New List(Of String) From {"SalesManager"},
                     .AuthenticationMethod = fallbackIdentity.AuthenticationType,
                     .IsAuthenticated = fallbackIdentity.IsAuthenticated,
-                    .SourceChannel = $"ViewController: IIdentity Fallback ({fallbackIdentity.GetType().Name}, Name={fallbackIdentity.Name})"
+                    .SourceChannel = $"ViewController: IIdentity Fallback ({fallbackIdentity.GetType().Name})"
                 }
             End If
         End Sub

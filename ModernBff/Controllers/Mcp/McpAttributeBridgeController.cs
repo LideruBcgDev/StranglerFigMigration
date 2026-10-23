@@ -76,7 +76,7 @@ public class McpAttributeBridgeController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/bff/mcp/bridge/invoke/{toolName}?customerId=1&keyword=PRJ
+    /// GET /api/bff/mcp/bridge/invoke/{toolName}?customerId=1&amp;keyword=PRJ
     /// [McpTool] 属性が付与されたメソッドをリフレクションで検索し、共有 loginuser を注入して直接実行します。
     /// </summary>
     [HttpGet("invoke/{toolName}")]

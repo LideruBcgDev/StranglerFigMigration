@@ -40,16 +40,17 @@ Public Partial Class LegacyPortal
             End If
         End If
 
-        ' 2. セッションから loginuser を復元
+        ' 2. セッションまたはモダン側プロキシヘッダーから loginuser を復元
         Dim sessionUser As LoginUser = TryCast(Session("loginuser"), LoginUser)
 
         If reqContext IsNot Nothing AndAlso reqContext.LoginUser IsNot Nothing Then
             Dim u = reqContext.LoginUser
-            lblLoginUserInfo.Text = $"✓ req_code: [{reqCode}] より引継ログイン中: {u.UserName} ({u.UserId}) | 組織: [{u.OrganizationCode}] {u.OrganizationName} | 権限: {String.Join(", ", u.Roles)} (コマンド: {reqContext.CommandName})"
+            lblLoginUserInfo.Text = $"✓ [Client起動] req_code: [{reqCode}] より引継ログイン中: {u.UserName} ({u.UserId}) | 組織: [{u.OrganizationCode}] {u.OrganizationName} | 権限: {String.Join(", ", u.Roles)} (コマンド: {reqContext.CommandName})"
         ElseIf sessionUser IsNot Nothing Then
-            lblLoginUserInfo.Text = $"セッションログイン中: {sessionUser.UserName} ({sessionUser.UserId}) | 組織: [{sessionUser.OrganizationCode}] {sessionUser.OrganizationName} | 権限: {String.Join(", ", sessionUser.Roles)} (ASP.NET InProc Session)"
+            Dim ch = If(String.IsNullOrWhiteSpace(sessionUser.SourceChannel), "ASP.NET InProc Session", sessionUser.SourceChannel)
+            lblLoginUserInfo.Text = $"✓ [モダン認証連携] ログイン中: {sessionUser.UserName} ({sessionUser.UserId}) | 組織: [{sessionUser.OrganizationCode}] {sessionUser.OrganizationName} | 権限: {String.Join(", ", sessionUser.Roles)} ({ch})"
         Else
-            lblLoginUserInfo.Text = "未ログイン - WinForms クライアントからのコマンド起動で loginuser が自動引き継ぎされます。"
+            lblLoginUserInfo.Text = "未ログイン - モダン側 (/login) でログインするか、WinForms クライアントから起動してください。"
         End If
 
         lblServerTime.Text = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
